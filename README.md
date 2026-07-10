@@ -6,6 +6,15 @@ You'll build a small full-stack app. There will be a follow up conversation wher
 
 ---
 
+# <span style="color: lightgreen;">EK Assumptions</span>
+
+<span style="color: lightgreen;">
+`1.` All transactions are `DUAL MESSAGE` and tender type `CREDIT`.<br>
+`2.` ISO Currency Trigraphs are used for Currency indicators.<br>
+</span>
+
+---
+
 ## The Setup
 
 We're a payments company. When we run a customer's card, two systems end up with a record of that same money - and they never agree cleanly:
@@ -13,7 +22,10 @@ We're a payments company. When we run a customer's card, two systems end up with
 - **Our internal ledger** - what _our_ system believes happened the moment we captured the payment: the merchant, the card, the **gross** amount.
 - **The processor's settlement file** - what the card networks and our processor _actually settled_ a day or two later, and what they'll pay out: a **net** amount, **after** interchange and processor fees are deducted.
 
-Reconciliation is the daily job of matching those two sides against each other and surfacing everything that _doesn't_ line up - money we're owed but never received, amounts that don't match, fees we may have been overcharged, things settled that we have no record of. It's core payments work, and getting it right is the exercise.
+Reconciliation is the daily job of matching those two sides against each other and surfacing everything that _doesn't_ line up - money we're owed but never received, amounts that don't match, fees we may have been overcharged, things settled that we have no record of. It's core payments work, and getting it right is the exercise.  
+
+<span style="color: red;">I am glad you didn't add reconciliation of Clearing (PayFacs) too.  
+I am guessing you are either a gateway or will always do NET SETTLEMENT/FUNDING regardless?
 
 ---
 
@@ -27,6 +39,15 @@ A web application that ingests both files, reconciles them, and reports the resu
 4. **Report** a reconciliation summary and a drill-down list of every break (mismatch).
 
 Implement it however you like. That said - see [Stack](#stack) for what would fit our team best.
+
+
+### <span style="color: lightgreen;">Comments
+
+<span style="color: lightgreen;">Pardon me. This is a great test, but it looks like the greatest free consulting exercise in the history of mankind too,lol...
+Regardless, glad for the opportunity.<br>
+<br>
+Also, thanks for the detailed writeup, and even expected results... Much appreciated.
+<span>
 
 ---
 
@@ -45,29 +66,29 @@ Both sets include a few deliberately malformed rows - a missing field, a non-num
 
 ### `internal_transactions.csv` - our ledger (CSV)
 
-| Column            | Notes                                                                           |
-| ----------------- | ------------------------------------------------------------------------------- |
-| `internal_txn_id` | Our primary key. **Does not appear anywhere in the settlement file.**           |
-| `merchant_id`     | e.g. `MERCH-004`                                                                |
-| `merchant_ref`    | Our order reference. The processor _usually_ echoes this back - but not always. A REFUND reuses its original sale's reference, so a refunded order shows up as a SALE row and a REFUND row sharing this value. |
-| `card_type`       | `VISA`, `MASTERCARD`, `AMEX`, `DISCOVER`                                        |
-| `card_last4`      | Last four of the card                                                           |
-| `gross_amount`    | The full amount, **before fees**. Negative for refunds.                         |
-| `currency`        | `USD`                                                                           |
-| `type`            | `SALE` or `REFUND`                                                              |
-| `captured_at`     | ISO 8601, when we captured the payment                                          |
+| Column            | Notes                                                                                                                                                                                                            | <span style="color: lightgreen;">EK Notes                                                                                                                                                            |
+| ----------------- |------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------| 
+| `internal_txn_id` | Our primary key. **Does not appear anywhere in the settlement file.**                                                                                                                                            |                                                                                                                                                                                                      |
+| `merchant_id`     | e.g. `MERCH-004`                                                                                                                                                                                                 |                                                                                                                                                                                                      |
+| `merchant_ref`    | Our order reference. The processor _usually_ echoes this back - but not always. A REFUND reuses its original sale's reference, so a refunded order shows up as a SALE row and a REFUND row sharing this value.   |                                                                                                                                                                                                      |
+| `card_type`       | `VISA`, `MASTERCARD`, `AMEX`, `DISCOVER`                                                                                                                                                                         |                                                                                                                                                                                                      |
+| `card_last4`      | Last four of the card                                                                                                                                                                                            |                                                                                                                                                                                                      |
+| `gross_amount`    | The full amount, **before fees**. Negative for refunds.                                                                                                                                                          | <span style="color: lightgreen;">Only use Java `BIGDECIMAL` internally for these, and an equivalent BCD type in SQL DBs in case someone later uses a trigger to push txns to the data lake or an event steam, and things get rounded. |
+| `currency`        | `USD`                                                                                                                                                                                                            |                                                                                                                                                                                                      |
+| `type`            | `SALE` or `REFUND`                                                                                                                                                                                               | <span style="color: lightgreen;">This table must be for *financial transactions* (transactions that make it into the batch) only.                                                                                                     |  
+| `captured_at`     | ISO 8601, when we captured the payment                                                                                                                                                                           | <span style="color: lightgreen;">Store this as a SQL DATE type or `long` in docDBs that aren't fast at sorting dates or have poor i18n functionality.                                                                                 |
 
 ### `processor_settlement.json` - the processor (JSON array)
 
-| Field                                    | Notes                                                                         |
-| ---------------------------------------- | ----------------------------------------------------------------------------- |
-| `network_ref`                            | The network's reference (ARN). Unrelated to our IDs.                          |
-| `merchant_ref`                           | Our order reference, _echoed back_ - **but sometimes blank**.                 |
-| `merchant_id`, `card_last4`, `card_type` | As reported by the processor                                                  |
-| `settled_amount`                         | The **net** amount actually settled (gross minus fees). Negative for refunds. |
-| `interchange_fee`, `processor_fee`       | The fees the processor deducted                                               |
-| `currency`                               |                                                                               |
-| `settlement_date`                        | The date it settled - **typically 1–3 days after** `captured_at`              |
+| Field                                    | Notes                                                                         | <span style="color: lightgreen;">EK Notes                                                                                                                                                                                             |
+| ---------------------------------------- | ----------------------------------------------------------------------------- |------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `network_ref`                            | The network's reference (ARN). Unrelated to our IDs.                          |                                                                                                                                                                                                      |
+| `merchant_ref`                           | Our order reference, _echoed back_ - **but sometimes blank**.                 |                                                                                                                                                                                                      |
+| `merchant_id`, `card_last4`, `card_type` | As reported by the processor                                                  |                                                                                                                                                                                                      |
+| `settled_amount`                         | The **net** amount actually settled (gross minus fees). Negative for refunds. | <span style="color: lightgreen;">Only use Java `BIGDECIMAL` internally for these, and an equivalent BCD type in SQL DBs in case someone later uses a trigger to push txns to the data lake or an event steam, and things get rounded. |
+| `interchange_fee`, `processor_fee`       | The fees the processor deducted                                               | <span style="color: lightgreen;">Only use Java `BIGDECIMAL` internally for these, and an equivalent BCD type in SQL DBs in case someone later uses a trigger to push txns to the data lake or an event steam, and things get rounded. |
+| `currency`                               |                                                                               | <span style="color: lightgreen;">ISO Currency Trigraph                                                                                                                                                                                |
+| `settlement_date`                        | The date it settled - **typically 1–3 days after** `captured_at`              | <span style="color: lightgreen;">Store this as a SQL DATE type or long in docDBs that aren't fast at sorting dates or have poor i18n functionality.                                                                                                                                                                                                     |
 
 > **No shared primary key.** `internal_txn_id` never appears on the settlement side. `merchant_ref` is the natural link, but it's blank on a large share of settlement rows - so you'll need a documented fallback strategy for the rows it can't cover. Note the two sides don't share an amount: the ledger carries **gross**, the settlement carries **net** (gross minus fees). A fallback on "merchant + card + amount" therefore has to compare the settlement's net against each candidate sale's **fee-adjusted expected net**, not its gross - so matching these rows already depends on the fee math. Matching is one of several things you have to get right, alongside the fee math and correct break classification - not a trick in itself.
 
@@ -94,6 +115,16 @@ expected_settled = gross − interchange_fee − processor_fee
 | AMEX       | 2.50%         | $0.15            |
 | DISCOVER   | 2.00%         | $0.10            |
 
+
+<span style="color: lightgreen;">Round HALF_UP is typical for USA. Was a Globalization Engineer and had to push code through Eurozone BASDA audits in the past.
+Not sure what your cross-border, international, or DCC aspirations are, but I can help there too, probably the only living human
+(one who survived, that is) that's done 5 different DCC certs for different gateways to FEXCO and others.<br>
+</span>
+<br>
+<span style="color: red;">
+For you to specify rounding scheme, it means you have (or had, and they didn't work out) specific plans in this regard. Any 
+info would be appreciated if you want a more nuanced codebase back.</span>
+
 Plus a flat **processor markup** applied to every card: **0.30% + $0.05**.
 
 **Refunds** settle at the full negative gross with **no fees** (fees are not returned). A refund echoes the **same `merchant_ref` as its original sale**, so a refunded order appears on the settlement side as a positive sale settlement _and_ a negative refund settlement under that one reference - pair them by reference **and** type/sign; the negative row is not a duplicate of the positive one.
@@ -116,6 +147,20 @@ Your report should identify at least these break categories. Names are yours to 
 - **Duplicate settlement**: the same payment settled more than once - the settlement rows **repeat** the expected net, and we'd be double-paid. Don't confuse this with a **split settlement** (see the open questions below), where multiple rows for one capture instead **sum** to the expected net. Distinguishing "rows that each repeat the net" from "rows that sum to the net" matters for your duplicate count even if you don't fully handle splits.
 - **Orphan refund**: a refund whose `merchant_ref` matches **no** SALE anywhere in the ledger - a refund with no originating sale. There's no special marker; you detect it by the absence of a matching sale reference. This is a **separate pass** from settlement matching: an orphan refund may still settle cleanly against its own settlement row, so a match-first pipeline that stops at "the refund settled fine" will miss it. Report it as its own break rather than counting it as cleanly matched.
 
+<span style="color: lightgreen;">What you call `ORPHAN REFUND` was classically called a `RETURN` or today more commonly `BLIND REFUND`.
+It's frankly bizarre that anyone would identify these in this way... Whatever you want to call it, it's a *different TRAN TYPE*
+(in the merchant and your front-end API context) and is or isn't allowed according to certain criteria (not getting into all that), but usually the Merchant's BOARDING RECORD will
+have a toggle/boolean for `ALLOW_BLIND_REFUNDS` or similar so that the merchant themselves can set this up. For T&E and Restaurant
+merchants, or anywhere else (Car Rental, Cruise, Retail, etc.) that you are managing Merchant Boarding Accounts with `CORPORATE`
+vs. `FRANCHISE` merchants of the same name/flag (e.g. Hilton, Westin, McDonalds, etc.), there might be stipulated `default values` 
+for all merchants within those classifications... 
+I'll try to do this, but the usual way is: match up your transaction reports to your merchant transactions/batches, then
+treat all *merchant-side* `RETURN` or `BLIND_REFUND` matches at the host side as authorized acts of pushing money onto a card,
+(not unlike a `GIFT CARD` program where you `ACTIVATE` the card first, the `LOAD` or `RELOAD` extra balance onto the card). If
+you find one you can't match to anything on the merchant side, then flag it as possible fraud, log, and alert.
+
+</span>
+
 ---
 
 ## Reporting
@@ -128,17 +173,79 @@ At minimum, the app should show:
 - A **per-merchant** rollup.
 - A **drill-down** list of breaks - each showing both sides (where they exist) and the reason it broke - so someone in ops could actually act on it.
 
+<span style="color: lightgreen;">Comment: Got it, typical "Count and Amount" type stuff without the multi-currency or multi-tender-type 
+(`CREDIT` vs `DEBIT`) and Instant vs. Eventual breakdowns.</span>
+
+
 ---
 
 ## A Few Things We Left Open (On Purpose)
 
 These have no single right answer. Make a call, and be ready to explain it:
 
-1. **Amount tolerance** - how close is "matched"? What do you do about sub-cent rounding? Reconstructing the expected settled amount a slightly different way than the source data can differ by a cent, so pick a tolerance that absorbs those sub-cent differences rather than flagging them as breaks.
-2. **Date window** - settlement usually lands in 1–3 days. The data contains a few that settle much later. Do you still match those, or flag them? Why?
+1. **Amount tolerance** - how close is "matched"? What do you do about sub-cent rounding? Reconstructing the expected settled amount a slightly different way than the source data can differ by a cent, so pick a tolerance that absorbs those sub-cent differences rather than flagging them as breaks.<br>
+<span style="color: lightgreen;">Honestly, this hasn't been much of an issue IMHO **for USA-centric processing**. Where the monsters
+be is when you are doing global payments, and you have cardholder/payor in one currency regime, and merchant in a 2nd (or even 3rd, keep reading)
+monetary regime.<br>
+Examples:<br>
+`1.` USA Payor doing classical cross-border purchase (meaning the merchant is within 10 miles of the USA border - like some
+Canadian airports) and still pays in `$USD` - no mismatches.  
+`2.` USA Payor doing foreign purchase in foreign currency, but no triangulation required. So $USD and $CAD are the currencies
+involved, and one (the payor currency usually in DCC regimes) or the other will be fixed and the other will float. In that case
+one can use the *fixed* currency as the transaction currency behind the scenes for matching, as clearing usually will indicate the 
+same number.<br>
+`3.` USA Payor doing foreign purchase in foreign currency, *with* required triangulation. So in this case you have conversion like
+`$USD` to an EMUC (Euro Monetary Union Candidate) Currency, let's say (it'll never happen but..) Turkish Lira at some point.
+The conversion would involve 3 currencies, and need 12 digits of precision until rounding: `$USD` to `TRY`, then `TRY` to 
+`$EUR`. At each step there could be rounding errors (as in, someone *did* round the intermediate amount, or truncate minor units)
+and then the rounding (as allowed by BASDA, the Eurozone accounting entity) can be done 2 different ways, resulting in 2 
+different "accepted" amounts.  Without knowing how to calculate both, to match amounts in the post-clearing stage, one is quite lost 
+if that's a hard requirement, and not using a `STAN` (System Trace Audit Number, usually generated by the Acquirer/Acquiring Office).
+</span>
+
+2. **Date window** - settlement usually lands in 1–3 days. The data contains a few that settle much later. Do you still match those, or flag them? Why?  
+<span style="color: lightgreen;">My problem here is nobody to talk to, and I know too much... and talk too much.  
+Real systems have different settlement (really clearing) speeds as value-adds that are sold to the Merchant. E.g. Regular, 
+Next Day, or Same Day settlement (assuming the Merchant - and the gateway make their windows).The only good answer is: "it depends".  
+Although these value-add categories increase complexity they also add flexibility. Sure, you have to do any settlements 
+(and doing tens of thousands of `TERMINAL CAPTURE` settlements per hour is a "good" scaling problem to have), they also provide
+some "forgiveness" in the handing of merchant batches in the `REGULAR SETTLEMENT` category - so it's not all a scale nightmare. 
+<br><br>
+To the point made in your question, directly, IMHO we always match them. That's because I have always made a point of separating
+Merchant `BATCH CLOSE` from `HOST SETTLEMENT` and `CLEARING` (of course, the clearing matters much more for PayFacs). If
+you separate and track these, and correlate, your support people AND the merchant will have a much easier time dealing with the
+(yes, don't argue) *inevitable* snafus in your own gateway, the downstram HOST(s) and the `ACQUIRING BANK`, all of whose
+behavior is like armpits: _everyone has them, and from time to time, everyone's stink._ <br><br>
+Also, let's not forget these snafus (when others commit them) have monetary penalties we are owed. The more of these we catch,
+not only do we save future grief placed on our Product Owner and Support people, but we can announce to our Merchants (hopefully
+*before* they realize the error) that an error took place, and the responsible party was not us, and we are doing everything
+possible on the merchant's behalf to correct this, and provide them the smooth processing we are known for.
+<br>
+<br>
+**Random Philosophical Comment**<br>
+Everything has a corolary, and the corolary to the above is that "if the merchant finds a fault, and notifies *us*, we have
+*failed them*. We should *always* be notifying our merchants *first* when something goes wrong - whether it's our issue or that
+of another party"
+</span>
+
+
 3. **Split settlements** - a single capture can settle as multiple partial rows that _sum_ to the expected net (fees apportioned across the parts), as opposed to a duplicate where each row repeats the full net. How would you handle that, and how do you keep split rows from being miscounted as duplicates? _(bonus)_
 
 We'd rather see a documented, defensible choice than an attempt to handle everything.
+
+<span style="color: red;">I don't know how to take this. I would need to ask follow ups. <br><br>NOTE: I am reading the 
+question literally here. As in a `CAPTURE` is a classic `PA-SALE` (Prior Approved SALE), meaning it has 2 parts, the `AUTH` and the `CAPTURE` that
+matches it.<br> <br>
+`1.`Is this in reference to the breakdowns present in the TPP Settlement Reports? As in the `CAPTURE` of the `AUTH` being 
+priced in a separate section from the `AUTH` itself, and how to knit fees together for these 2 things?
+<br>
+`2.`Is this in reference to literal dupe rows of the `CAPTURE` where `Interchange % Fee` (Ad Valorem or however else you call it)
+is on one row, and other fees (like `Interchange Amount`) are on separate, dupe-looking lines?
+<br><br>
+Since every Settlement Report I've ever seen (even the supposed VISA Standard ones) seem to have differences and weird matching
+in practice, I would like answer but don't have clarity on the question.
+</span>
+
 
 ---
 
@@ -171,15 +278,50 @@ Baseline expectations:
 - **Separation of concerns** - the reconciliation engine is a distinct, testable unit, not tangled into a controller or a React component.
 - **Persistence** - results survive a restart.
 - **It handles bad input** - malformed rows, missing fields, and unexpected values degrade gracefully instead of crashing.
+<br>  
+  - <span style="color: lightgreen;">Graceful degradation I am big on, but there are some functions where FAIL_STOP behavior is best.
+  - <span style="color: lightgreen;">Producing an exception report while still moving along or processing records is one way to do this
+  - <span style="color: lightgreen;">I get trying to prevent batches stuck in suspense at the downstream HOST is a real thing, but there are "Worse Things (TM)"
+    - <span style="color: lightgreen;">Stops the need for manual intervention by skilled people, which eventually results in those records removed from batch *anyway*
+    - <span style="color: lightgreen;">"Worse Things" might be the need for front-end reconciliation against your own host, providing adequate UI functions and a somewhat understandable UX for dealing with records that are plainly
+      - <span style="color: lightgreen;">Done during the shift/batch
+      - <span style="color: lightgreen;">Part of the day's/shift's/cashier's/whatever batch
+      - <span style="color: lightgreen;">Not funded
+      - <span style="color: lightgreen;">At minimum you need UI and back-end support (in case the merchant calls for it) for
+        - <span style="color: lightgreen;">Re-submission of the flawed transaction(s)
+        - <span style="color: lightgreen;">Putting Humpty Dumpty (the merchant batch in this case) back together again by either
+          - <span style="color: lightgreen;">Re-adding the transaction the same merchant batch (with special statuses showing it was a resubmission)
+          - <span style="color: lightgreen;">Creating a special "new" /"parallel" batch just for resubmissions, linking it to the merchant batch, *plus* linking it to the new batch at the TPP/HOST where it actually *did* get settled
+        - <span style="color: lightgreen;">Now repeat the above for your *funding* (not just settlement/clearing) logic
+          - <span style="color: lightgreen;">Add in what the policy is for fees where Next Day/Same Day settlement didn't work
+          - <span style="color: lightgreen;">Add in how your backend maintains merchant_batch to TPP_batch/TPP_sub_batch to PayFac_funding linkages
+        - <span style="color: lightgreen;">And then whatever special sauce you need for internal support of *chargebacks* on those transactions, because any changes made to amount or other significant data might enable the cardholder to initiate on       
+        - <span style="color: lightgreen;">This all needs **wargaming out** for a new gateway/payfac build
+        - <span style="color: lightgreen;">Not just devs, but product owner and pricing specialist need to be involved
 - **Tests** - the core matching and fee logic is covered.
+  - <span style="color: red;">Hope you don't care if I use Mockito, JUnit, TestNG, etc.?
+    - <span style="color: lightgreen;">I like TestNG soft asserts and Mockito's ability to let me unit-test private methods
+    - ****OTOH everyone knows JUnit
 - **It runs from your README** - clear, correct setup instructions.
+  - **I am Lit major... I could take 5 hours just writing the docs. I am usually *the only one* writing docs.
 
 Bonus / differentiators:
 
 - Handling of the open questions above (tolerance, date window, split settlements).
+  - <span style="color: lightgreen;">In the "Good Old Days", PAN, Refno (Merchant ref or STAN, etc.), and amount were enough for disambiguation
+  - <span style="color: lightgreen;">AMEX and others allowed identical transactions for high dollar amounts exceeding their amount maximum (over $99,999 for instance)
+    - <span style="color: lightgreen;">You used to divide amount x 2, create 2 identical transactions, and set the FORCE FLAG when doing AMEX DIRECT AUTH or most TPPs
+  - <span style="color: lightgreen;">I'll try and stick with this, because it's easy to reason through.
+
 - Thoughtful data modeling and query design.
+  - <span style="color: red;">I'll have to reread the assignment, I don't think i saw a preferred DB so an `H2` in memory 
+  DB will suffice I guess (easy to start/tear-down for testing), unless I either find a suggestion or you make one?
+- 
 - Idempotent re-imports; import history.
 - A UI that an operations person could genuinely use to work the breaks.
+  - <span style="color: lightgreen;">This is a bridge too far for me
+  - ****I support Payment Terminal Devices and Virtual Terminals, etc. but I am not a front-end nor fullstack developer
+  - ****I'll try having the AI build one - maybe - the results would likely be **embarrassing**, so we'll see how i let the evaluator kick it off...
 - A short writeup of the tradeoffs you made and what you'd do with more time.
 
 ---
