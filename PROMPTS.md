@@ -6,8 +6,10 @@
 
 ## Tools used
 
-_e.g. Claude Code, Cursor, ChatGPT - and roughly how heavily._
-
+Free Trial of the AI Agent packaged with Intellij IDEA ultimate (which I have my own license for).
+Figured I might as well try it out while challenging myself - what could go wrong - instead of using
+ChatGPT.  I have heard miraculous things about Claude Code, but haven't gotten to it yet. Was told 
+(by someone I trust who uses it religiously) without the $100/mo subscription it's too limited, so wait.
 ## Key prompts
 
 _The main prompts you used, roughly in order. Paste them; summarize the long ones._
@@ -18,9 +20,21 @@ _The main prompts you used, roughly in order. Paste them; summarize the long one
 
 ## Where it helped vs. where you steered it
 
-_Where the assistant sped you up, and where you had to correct, override, or throw away
-its output._
+
+### Hopes and Dreams
+Hoping it will give me some project boilerplate, maybe I'll give it some small
+jobs like turning the math calculations into Java functions, etc., at least for starters.
+
+### Reality
+
+#green _put actual utility here_
 
 ## Decisions you made against its suggestion
 
+| What Got Cut | Why | Additional Notes |
+|--------------|-----|------------------|
+|              |     |                  |
+|              |     |                  |
+|              |     |                  |
+|              |     |                  |
 _Anything you chose to do differently from what the assistant proposed, and why._
