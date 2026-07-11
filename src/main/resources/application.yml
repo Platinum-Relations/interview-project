@@ -1,0 +1,27 @@
+spring:
+  application:
+    name: settlement-reconciliation
+
+  datasource:
+    url: jdbc:h2:file:./var/reconciliation-db;AUTO_SERVER=TRUE;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+
+server:
+  port: 8080
+
+reconciliation:
+  imports:
+    internal-transactions:
+      directory: test
+      filename: internal_transactions.csv

@@ -18,6 +18,10 @@ You'll build a small full-stack app. There will be a follow up conversation wher
 ## The Setup
 
 We're a payments company. When we run a customer's card, two systems end up with a record of that same money - and they never agree cleanly:
+<br>
+<br>
+<span style="color: lightgreen;">Never say never...</span>
+
 
 - **Our internal ledger** - what _our_ system believes happened the moment we captured the payment: the merchant, the card, the **gross** amount.
 - **The processor's settlement file** - what the card networks and our processor _actually settled_ a day or two later, and what they'll pay out: a **net** amount, **after** interchange and processor fees are deducted.

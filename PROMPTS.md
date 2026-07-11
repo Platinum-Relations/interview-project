@@ -14,9 +14,24 @@ ChatGPT.  I have heard miraculous things about Claude Code, but haven't gotten t
 
 _The main prompts you used, roughly in order. Paste them; summarize the long ones._
 
-1.
-2.
-3.
+1. Asked the assistant to help build the assignment incrementally rather than all at once; requested a strategy for tracking AI prompts in `PROMPTS.md`; asked for initial recommendations on Java project structure and local persistence options for a small settlement reconciliation application.
+2. Clarified that the existing `PROMPTS.md` should be used, and that assistant-provided updates should be limited to the `Key prompts` section rather than overwriting the whole file.
+3. Agreed with a backend-first implementation plan, with React frontend deferred until later; specified a strong preference for Gradle over Maven.
+4. Accepted the proposed base Java package for now, but rejected Hibernate/ORM in favor of jOOQ or plain JDBC to keep direct control over SQL statements and demonstrate database/query design.
+5. Approved Spring Boot with Gradle, H2 file persistence, Flyway migrations, Spring JDBC/JdbcClient, no ORM, and `decimal(19,4)` monetary columns; asked the assistant to generate the initial backend project skeleton.
+6. Asked whether conversation/project continuity survived an IntelliJ IDEA restart, and whether the work needed to be re-prompted from scratch.
+7. Verified the health endpoint and used that as a baseline that the Spring Boot application was running and reachable.
+8. Reported a 500 error from the internal transaction populate endpoint caused by generated key handling in `createImportBatch`; asked the assistant to refactor the solution so repeated imports work when multiple `import_batch` records already exist.
+9. Asked whether quarantined records in a single import run receive the same timestamp, and where the quarantine timestamp is set.
+10. Asked whether quarantined records are inserted within the same transaction and where the transaction/quarantine timestamp logic lives.
+11. Asked the assistant to continue updating `PROMPTS.md` with the prompts used during the project.
+12. Investigated the source of data used to populate the `internal_transaction` table after seeing unexpectedly high inserted row counts; identified the default CSV path and discussed possible working-directory/import-history causes.
+13. Asked to externalize the internal transaction import directory and filename into application configuration while preserving the current values.
+14. Noted that the IDE beta feature for applying code changes is close to correct but still needs review and cleanup.
+15. Asked for an integration test verifying that the configured internal transaction CSV record count matches the import result and the resulting `internal_transaction` table count.
+16. Debugged test setup issues around JUnit 5, Gradle test execution, deprecated Commons CSV builder usage, and Spring constructor injection for test dependencies.
+17. Confirmed the import count integration test passes and provides the intended guardrail against wrong-file or unexpected-extra-record import bugs.
+
 
 ## Where it helped vs. where you steered it
 
@@ -31,10 +46,10 @@ jobs like turning the math calculations into Java functions, etc., at least for 
 
 ## Decisions you made against its suggestion
 
-| What Got Cut | Why | Additional Notes |
-|--------------|-----|------------------|
-|              |     |                  |
-|              |     |                  |
-|              |     |                  |
-|              |     |                  |
-_Anything you chose to do differently from what the assistant proposed, and why._
+| What Got Cut                              | Why                                                                                                                                                                                                                     | Additional Notes                                                                                                                                                |
+|-------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `Hibernate` or `JPA` (some "magic" `ORM`) | I <span style="color: red;">**loathe**</span> ORMs. Whether debugging for correctness and transaction scope, or performance tuning, I have never ever seen one *not* be an issue, especially as load and volume grow.   | Vastly prefer just `JDBC` and then `JOOQ` or even the old `Cayenne` since total control of statements and isolation/transaction levels is available and easy.   |
+|                                           |                                                                                                                                                                                                                         |                                                                                                                                                                 |
+|                                           |                                                                                                                                                                                                                         |                                                                                                                                                                 |
+|                                           |                                                                                                                                                                                                                         |                                                                                                                                                                 |
+
