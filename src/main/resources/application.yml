@@ -25,3 +25,6 @@ reconciliation:
     internal-transactions:
       directory: test
       filename: internal_transactions.csv
+    processor-settlement:
+      directory: test
+      filename: processor_settlement.json

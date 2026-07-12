@@ -16,7 +16,6 @@ import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.PreparedStatement;
-import java.sql.Statement;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.Objects;
@@ -56,11 +55,13 @@ public class InternalTransactionImportService {
         jdbcTemplate.update("delete from internal_transaction");
 
         try (Reader reader = Files.newBufferedReader(sourcePath)) {
-            Iterable<CSVRecord> records = CSVFormat.DEFAULT.builder()
+            // split these up for ease in debugger if needed, not fond of too much "cleverness" that makes
+            // debugging chained methods even more difficult.
+            Iterable<CSVRecord> records;
+            records = CSVFormat.DEFAULT.builder()
                     .setHeader()
                     .setSkipHeaderRecord(true)
-                    .setTrim(true)
-                    .build()
+                    .setTrim(true).get()
                     .parse(reader);
 
             for (CSVRecord record : records) {
@@ -70,9 +71,9 @@ public class InternalTransactionImportService {
                     validRowCount++;
                     // add to total gross SALEs if SALE type and same for REFUNDs
                     if (TransactionTypes.SALE.name().equalsIgnoreCase(row.transactionType)) {
-                        grossSalesAmount.add(row.grossAmount);
+                        grossSalesAmount = grossSalesAmount.add(row.grossAmount);
                     } else if (TransactionTypes.REFUND.name().equalsIgnoreCase(row.transactionType)) {
-                        grossRefundAmount.add(row.grossAmount);
+                        grossRefundAmount = grossRefundAmount.add(row.grossAmount);
                     }
                 } catch (Exception ex) {
                     quarantineRecord(importBatchId, record, ex.getMessage());
