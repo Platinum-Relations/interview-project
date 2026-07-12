@@ -1,348 +1,180 @@
-# Settlement Reconciliation
+# Run Instructions
 
-Thanks for your interest in the role. This is a take-home exercise meant to be done in **your own environment, on your own schedule** - we've found that gives you the best chance to show how you actually work. Plan for roughly **3–5 hours**. It is not a race, and it is not meant to be gold-plated; we care far more about the quality of what you build than the quantity.
+This project is a Java / Spring Boot settlement reconciliation service using Gradle, Spring JDBC, Flyway, and a local H2 file database.
 
-You'll build a small full-stack app. There will be a follow up conversation where you walk us through your code and your decisions, so **be sure the end product is something you can explain**, not just checks every box.
+## Prerequisites
 
----
+- JDK 25 available on `PATH`
+- PowerShell or another shell that can run the Gradle wrapper
+- No external database is required
+- Gradle wrapper 8.4 or later
 
-# <span style="color: lightgreen;">EK Assumptions</span>
+The project uses the checked-in Gradle wrapper, so Gradle does not need to be installed separately.
 
-<span style="color: lightgreen;">
-`1.` All transactions are `DUAL MESSAGE` and tender type `CREDIT`.<br>
-`2.` ISO Currency Trigraphs are used for Currency indicators.<br>
-</span>
+## Verify the Project
 
----
+From the repository root:
 
-## The Setup
-
-We're a payments company. When we run a customer's card, two systems end up with a record of that same money - and they never agree cleanly:
-<br>
-<br>
-<span style="color: lightgreen;">Never say never...</span>
-
-
-- **Our internal ledger** - what _our_ system believes happened the moment we captured the payment: the merchant, the card, the **gross** amount.
-- **The processor's settlement file** - what the card networks and our processor _actually settled_ a day or two later, and what they'll pay out: a **net** amount, **after** interchange and processor fees are deducted.
-
-Reconciliation is the daily job of matching those two sides against each other and surfacing everything that _doesn't_ line up - money we're owed but never received, amounts that don't match, fees we may have been overcharged, things settled that we have no record of. It's core payments work, and getting it right is the exercise.  
-
-<span style="color: red;">I am glad you didn't add reconciliation of Clearing (PayFacs) too.  
-I am guessing you are either a gateway or will always do NET SETTLEMENT/FUNDING regardless?
-
----
-
-## What You'll Build
-
-A web application that ingests both files, reconciles them, and reports the results:
-
-1. **Import** the two provided files (formats differ - see below).
-2. **Reconcile** internal transactions against settlement records.
-3. **Persist** the results so they survive a restart.
-4. **Report** a reconciliation summary and a drill-down list of every break (mismatch).
-
-Implement it however you like. That said - see [Stack](#stack) for what would fit our team best.
-
-
-### <span style="color: lightgreen;">Comments
-
-<span style="color: lightgreen;">Pardon me. This is a great test, but it looks like the greatest free consulting exercise in the history of mankind too,lol...
-Regardless, glad for the opportunity.<br>
-<br>
-Also, thanks for the detailed writeup, and even expected results... Much appreciated.
-<span>
-
----
-
-## The Data
-
-Two datasets are provided:
-
-| Directory | Purpose                                                                                                                   |
-| --------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `test/`   | Small, hand-verifiable. `test/EXPECTED.md` gives the correct counts for **every** category - including orphan refunds, split settlements, wide-window timing, and malformed rows - so you can check your full pipeline as you go. |
-| `data/`   | Larger, realistic set with breaks of every category mixed in. This is what a "real" day looks like.                       |
-
-Both sets include a few deliberately malformed rows - a missing field, a non-numeric amount, an unexpected currency, and the like. Quarantine them gracefully rather than letting them crash the run; they are not breaks and must not appear in any break count.
-
-**The formats are intentionally different**, as they are in real life - you're integrating two systems that were never designed to talk to each other:
-
-### `internal_transactions.csv` - our ledger (CSV)
-
-| Column            | Notes                                                                                                                                                                                                            | <span style="color: lightgreen;">EK Notes                                                                                                                                                            |
-| ----------------- |------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------| 
-| `internal_txn_id` | Our primary key. **Does not appear anywhere in the settlement file.**                                                                                                                                            |                                                                                                                                                                                                      |
-| `merchant_id`     | e.g. `MERCH-004`                                                                                                                                                                                                 |                                                                                                                                                                                                      |
-| `merchant_ref`    | Our order reference. The processor _usually_ echoes this back - but not always. A REFUND reuses its original sale's reference, so a refunded order shows up as a SALE row and a REFUND row sharing this value.   |                                                                                                                                                                                                      |
-| `card_type`       | `VISA`, `MASTERCARD`, `AMEX`, `DISCOVER`                                                                                                                                                                         |                                                                                                                                                                                                      |
-| `card_last4`      | Last four of the card                                                                                                                                                                                            |                                                                                                                                                                                                      |
-| `gross_amount`    | The full amount, **before fees**. Negative for refunds.                                                                                                                                                          | <span style="color: lightgreen;">Only use Java `BIGDECIMAL` internally for these, and an equivalent BCD type in SQL DBs in case someone later uses a trigger to push txns to the data lake or an event steam, and things get rounded. |
-| `currency`        | `USD`                                                                                                                                                                                                            |                                                                                                                                                                                                      |
-| `type`            | `SALE` or `REFUND`                                                                                                                                                                                               | <span style="color: lightgreen;">This table must be for *financial transactions* (transactions that make it into the batch) only.                                                                                                     |  
-| `captured_at`     | ISO 8601, when we captured the payment                                                                                                                                                                           | <span style="color: lightgreen;">Store this as a SQL DATE type or `long` in docDBs that aren't fast at sorting dates or have poor i18n functionality.                                                                                 |
-
-### `processor_settlement.json` - the processor (JSON array)
-
-| Field                                    | Notes                                                                         | <span style="color: lightgreen;">EK Notes                                                                                                                                                                                             |
-| ---------------------------------------- | ----------------------------------------------------------------------------- |------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `network_ref`                            | The network's reference (ARN). Unrelated to our IDs.                          |                                                                                                                                                                                                      |
-| `merchant_ref`                           | Our order reference, _echoed back_ - **but sometimes blank**.                 |                                                                                                                                                                                                      |
-| `merchant_id`, `card_last4`, `card_type` | As reported by the processor                                                  |                                                                                                                                                                                                      |
-| `settled_amount`                         | The **net** amount actually settled (gross minus fees). Negative for refunds. | <span style="color: lightgreen;">Only use Java `BIGDECIMAL` internally for these, and an equivalent BCD type in SQL DBs in case someone later uses a trigger to push txns to the data lake or an event steam, and things get rounded. |
-| `interchange_fee`, `processor_fee`       | The fees the processor deducted                                               | <span style="color: lightgreen;">Only use Java `BIGDECIMAL` internally for these, and an equivalent BCD type in SQL DBs in case someone later uses a trigger to push txns to the data lake or an event steam, and things get rounded. |
-| `currency`                               |                                                                               | <span style="color: lightgreen;">ISO Currency Trigraph                                                                                                                                                                                |
-| `settlement_date`                        | The date it settled - **typically 1–3 days after** `captured_at`              | <span style="color: lightgreen;">Store this as a SQL DATE type or long in docDBs that aren't fast at sorting dates or have poor i18n functionality.                                                                                                                                                                                                     |
-
-> **No shared primary key.** `internal_txn_id` never appears on the settlement side. `merchant_ref` is the natural link, but it's blank on a large share of settlement rows - so you'll need a documented fallback strategy for the rows it can't cover. Note the two sides don't share an amount: the ledger carries **gross**, the settlement carries **net** (gross minus fees). A fallback on "merchant + card + amount" therefore has to compare the settlement's net against each candidate sale's **fee-adjusted expected net**, not its gross - so matching these rows already depends on the fee math. Matching is one of several things you have to get right, alongside the fee math and correct break classification - not a trick in itself.
-
----
-
-## The Fee Rule
-
-A settled amount will **not** equal the gross amount - fees come out first. To know whether a settlement is _correct_, you compute the fees you expect from the published schedule and compare.
-
-For a **SALE** of `gross` on a given card type:
-
-```
-interchange_fee = round(gross × interchange.percent + interchange.flat)
-processor_fee   = round(gross × markup.percent      + markup.flat)
-expected_settled = gross − interchange_fee − processor_fee
+```powershell
+.\gradlew.bat test
 ```
 
-**Each fee is rounded to the cent (half-up) _before_ the settled amount is derived** - so `expected_settled = gross − round(interchange_fee) − round(processor_fee)`, not a single rounding step at the end. The schedule is in **`fee_schedule.json`**:
+Expected result:
 
-| Card type  | Interchange % | Interchange flat |
-| ---------- | ------------- | ---------------- |
-| VISA       | 1.80%         | $0.10            |
-| MASTERCARD | 1.90%         | $0.10            |
-| AMEX       | 2.50%         | $0.15            |
-| DISCOVER   | 2.00%         | $0.10            |
+```text
+BUILD SUCCESSFUL
+```
 
+The test suite imports the known-good `test/` data set and verifies:
 
-<span style="color: lightgreen;">Round HALF_UP is typical for USA. Was a Globalization Engineer and had to push code through Eurozone BASDA audits in the past.
-Not sure what your cross-border, international, or DCC aspirations are, but I can help there too, probably the only living human
-(one who survived, that is) that's done 5 different DCC certs for different gateways to FEXCO and others.<br>
-</span>
-<br>
-<span style="color: red;">
-For you to specify rounding scheme, it means you have (or had, and they didn't work out) specific plans in this regard. Any 
-info would be appreciated if you want a more nuanced codebase back.</span>
+- `18` internal transaction input rows
+- `15` valid internal transaction rows
+- `3` quarantined internal transaction rows
+- `19` settlement input rows
+- `17` valid settlement rows
+- `2` quarantined settlement rows
+- expected settlement amount total: `5161.00`
+- expected total fees: `151.74`
+- reconciliation outcome counts from `test/EXPECTED.md`
 
-Plus a flat **processor markup** applied to every card: **0.30% + $0.05**.
+## Run the Service
 
-**Refunds** settle at the full negative gross with **no fees** (fees are not returned). A refund echoes the **same `merchant_ref` as its original sale**, so a refunded order appears on the settlement side as a positive sale settlement _and_ a negative refund settlement under that one reference - pair them by reference **and** type/sign; the negative row is not a duplicate of the positive one.
+From the repository root:
 
-Because a correct match depends on the fee math, a settlement can be wrong in two different ways. Tell them apart by asking whether the settled amount is internally consistent with the fees the processor _reported_:
+```powershell
+.\gradlew.bat bootRun
+```
 
-- **Amount mismatch (principal off):** `settled_amount ≠ gross − reported_interchange − reported_processor_fee` (beyond your rounding tolerance). The settled amount can't be explained even by the fees the processor itself reported, so the principal is wrong. The reported fees may still match the schedule.
-- **Fee discrepancy (fees off):** `settled_amount = gross − reported_interchange − reported_processor_fee` (it _is_ internally consistent), but the reported fees deviate from the published schedule. A check that only compares `settled_amount` against `gross − reported_fees` will pass - you have to compare the reported fees against `fee_schedule.json` to catch it.
+The service starts on:
 
----
+```text
+http://localhost:8080
+```
 
-## What "Doesn't Line Up" Looks Like
+The default configured input files are:
 
-Your report should identify at least these break categories. Names are yours to choose:
+```text
+test/internal_transactions.csv
+test/processor_settlement.json
+```
 
-- **Unmatched - internal**: in our ledger, never settled. Money owed to us, or a dropped payout.
-- **Unmatched - settlement**: settled with no ledger record. A real risk (possible fraud or a missed booking).
-- **Amount mismatch**: matched, but the settled principal is off by more than rounding.
-- **Fee discrepancy**: fees deviate from the published schedule - we may have been overcharged.
-- **Duplicate settlement**: the same payment settled more than once - the settlement rows **repeat** the expected net, and we'd be double-paid. Don't confuse this with a **split settlement** (see the open questions below), where multiple rows for one capture instead **sum** to the expected net. Distinguishing "rows that each repeat the net" from "rows that sum to the net" matters for your duplicate count even if you don't fully handle splits.
-- **Orphan refund**: a refund whose `merchant_ref` matches **no** SALE anywhere in the ledger - a refund with no originating sale. There's no special marker; you detect it by the absence of a matching sale reference. This is a **separate pass** from settlement matching: an orphan refund may still settle cleanly against its own settlement row, so a match-first pipeline that stops at "the refund settled fine" will miss it. Report it as its own break rather than counting it as cleanly matched.
+## Exercise the API
 
-<span style="color: lightgreen;">What you call `ORPHAN REFUND` was classically called a `RETURN` or today more commonly `BLIND REFUND`.
-It's frankly bizarre that anyone would identify these in this way... Whatever you want to call it, it's a *different TRAN TYPE*
-(in the merchant and your front-end API context) and is or isn't allowed according to certain criteria (not getting into all that), but usually the Merchant's BOARDING RECORD will
-have a toggle/boolean for `ALLOW_BLIND_REFUNDS` or similar so that the merchant themselves can set this up. For T&E and Restaurant
-merchants, or anywhere else (Car Rental, Cruise, Retail, etc.) that you are managing Merchant Boarding Accounts with `CORPORATE`
-vs. `FRANCHISE` merchants of the same name/flag (e.g. Hilton, Westin, McDonalds, etc.), there might be stipulated `default values` 
-for all merchants within those classifications... 
-I'll try to do this, but the usual way is: match up your transaction reports to your merchant transactions/batches, then
-treat all *merchant-side* `RETURN` or `BLIND_REFUND` matches at the host side as authorized acts of pushing money onto a card,
-(not unlike a `GIFT CARD` program where you `ACTIVATE` the card first, the `LOAD` or `RELOAD` extra balance onto the card). If
-you find one you can't match to anything on the merchant side, then flag it as possible fraud, log, and alert.
+In a second PowerShell window, verify the service is running:
 
-</span>
+```powershell
+curl.exe -i http://localhost:8080/api/health
+```
 
----
+Import internal transactions:
 
-## Reporting
+```powershell
+curl.exe -i -X POST http://localhost:8080/api/import/internal-transactions/populate
+```
 
-At minimum, the app should show:
+Import processor settlement records:
 
-- A **reconciliation summary**: count and total dollar amount per break category, plus how many matched cleanly.
-- **Expected payout vs. actual settled**, and the total discrepancy.
-- **Total fees** deducted.
-- A **per-merchant** rollup.
-- A **drill-down** list of breaks - each showing both sides (where they exist) and the reason it broke - so someone in ops could actually act on it.
+```powershell
+curl.exe -i -X POST http://localhost:8080/api/import/processor-settlement/populate
+```
 
-<span style="color: lightgreen;">Comment: Got it, typical "Count and Amount" type stuff without the multi-currency or multi-tender-type 
-(`CREDIT` vs `DEBIT`) and Instant vs. Eventual breakdowns.</span>
+Run full reconciliation:
 
+```powershell
+curl.exe -i -X POST http://localhost:8080/api/reconciliation/run
+```
 
----
+The reconciliation response includes:
 
-## A Few Things We Left Open (On Purpose)
+- `reconciliationRunId`
+- summary rows with outcome names, counts, and total amounts
+- detailed break rows suitable for drill-down/reporting
 
-These have no single right answer. Make a call, and be ready to explain it:
+Expected summary counts for the `test/` data set:
 
-1. **Amount tolerance** - how close is "matched"? What do you do about sub-cent rounding? Reconstructing the expected settled amount a slightly different way than the source data can differ by a cent, so pick a tolerance that absorbs those sub-cent differences rather than flagging them as breaks.<br>
-<span style="color: lightgreen;">Honestly, this hasn't been much of an issue IMHO **for USA-centric processing**. Where the monsters
-be is when you are doing global payments, and you have cardholder/payor in one currency regime, and merchant in a 2nd (or even 3rd, keep reading)
-monetary regime.<br>
-Examples:<br>
-`1.` USA Payor doing classical cross-border purchase (meaning the merchant is within 10 miles of the USA border - like some
-Canadian airports) and still pays in `$USD` - no mismatches.  
-`2.` USA Payor doing foreign purchase in foreign currency, but no triangulation required. So $USD and $CAD are the currencies
-involved, and one (the payor currency usually in DCC regimes) or the other will be fixed and the other will float. In that case
-one can use the *fixed* currency as the transaction currency behind the scenes for matching, as clearing usually will indicate the 
-same number.<br>
-`3.` USA Payor doing foreign purchase in foreign currency, *with* required triangulation. So in this case you have conversion like
-`$USD` to an EMUC (Euro Monetary Union Candidate) Currency, let's say (it'll never happen but..) Turkish Lira at some point.
-The conversion would involve 3 currencies, and need 12 digits of precision until rounding: `$USD` to `TRY`, then `TRY` to 
-`$EUR`. At each step there could be rounding errors (as in, someone *did* round the intermediate amount, or truncate minor units)
-and then the rounding (as allowed by BASDA, the Eurozone accounting entity) can be done 2 different ways, resulting in 2 
-different "accepted" amounts.  Without knowing how to calculate both, to match amounts in the post-clearing stage, one is quite lost 
-if that's a hard requirement, and not using a `STAN` (System Trace Audit Number, usually generated by the Acquirer/Acquiring Office).
-</span>
+| Outcome                 | Count |
+|-------------------------|------:|
+| `CLEAN_MATCH`           |     8 |
+| `UNMATCHED_INTERNAL`    |     1 |
+| `UNMATCHED_SETTLEMENT`  |     1 |
+| `AMOUNT_MISMATCH`       |     1 |
+| `FEE_DISCREPANCY`       |     1 |
+| `DUPLICATE_SETTLEMENT`  |     1 |
+| `ORPHAN_REFUND`         |     1 |
+| `SPLIT_SETTLEMENT`      |     1 |
+| `WIDE_WINDOW_TIMING`    |     1 |
+| `MALFORMED_QUARANTINED` |     5 |
 
-2. **Date window** - settlement usually lands in 1–3 days. The data contains a few that settle much later. Do you still match those, or flag them? Why?  
-<span style="color: lightgreen;">My problem here is nobody to talk to, and I know too much... and talk too much.  
-Real systems have different settlement (really clearing) speeds as value-adds that are sold to the Merchant. E.g. Regular, 
-Next Day, or Same Day settlement (assuming the Merchant - and the gateway make their windows).The only good answer is: "it depends".  
-Although these value-add categories increase complexity they also add flexibility. Sure, you have to do any settlements 
-(and doing tens of thousands of `TERMINAL CAPTURE` settlements per hour is a "good" scaling problem to have), they also provide
-some "forgiveness" in the handing of merchant batches in the `REGULAR SETTLEMENT` category - so it's not all a scale nightmare. 
-<br><br>
-To the point made in your question, directly, IMHO we always match them. That's because I have always made a point of separating
-Merchant `BATCH CLOSE` from `HOST SETTLEMENT` and `CLEARING` (of course, the clearing matters much more for PayFacs). If
-you separate and track these, and correlate, your support people AND the merchant will have a much easier time dealing with the
-(yes, don't argue) *inevitable* snafus in your own gateway, the downstram HOST(s) and the `ACQUIRING BANK`, all of whose
-behavior is like armpits: _everyone has them, and from time to time, everyone's stink._ <br><br>
-Also, let's not forget these snafus (when others commit them) have monetary penalties we are owed. The more of these we catch,
-not only do we save future grief placed on our Product Owner and Support people, but we can announce to our Merchants (hopefully
-*before* they realize the error) that an error took place, and the responsible party was not us, and we are doing everything
-possible on the merchant's behalf to correct this, and provide them the smooth processing we are known for.
-<br>
-<br>
-**Random Philosophical Comment**<br>
-Everything has a corolary, and the corolary to the above is that "if the merchant finds a fault, and notifies *us*, we have
-*failed them*. We should *always* be notifying our merchants *first* when something goes wrong - whether it's our issue or that
-of another party"
-</span>
+## Optional Fee-Only Endpoint
 
+This endpoint records expected fees for merchant-reference/sign matches without running the full classification pass:
 
-3. **Split settlements** - a single capture can settle as multiple partial rows that _sum_ to the expected net (fees apportioned across the parts), as opposed to a duplicate where each row repeats the full net. How would you handle that, and how do you keep split rows from being miscounted as duplicates? _(bonus)_
+```powershell
+curl.exe -i -X POST http://localhost:8080/api/reconciliation/apply-fees
+```
 
-We'd rather see a documented, defensible choice than an attempt to handle everything.
+For evaluator review, prefer `/api/reconciliation/run`, because it produces the full classified result.
 
-<span style="color: red;">I don't know how to take this. I would need to ask follow ups. <br><br>NOTE: I am reading the 
-question literally here. As in a `CAPTURE` is a classic `PA-SALE` (Prior Approved SALE), meaning it has 2 parts, the `AUTH` and the `CAPTURE` that
-matches it.<br> <br>
-`1.`Is this in reference to the breakdowns present in the TPP Settlement Reports? As in the `CAPTURE` of the `AUTH` being 
-priced in a separate section from the `AUTH` itself, and how to knit fees together for these 2 things?
-<br>
-`2.`Is this in reference to literal dupe rows of the `CAPTURE` where `Interchange % Fee` (Ad Valorem or however else you call it)
-is on one row, and other fees (like `Interchange Amount`) are on separate, dupe-looking lines?
-<br><br>
-Since every Settlement Report I've ever seen (even the supposed VISA Standard ones) seem to have differences and weird matching
-in practice, I would like answer but don't have clarity on the question.
-</span>
+## Local Database Notes
+
+### Database Files Location
+The H2 database is stored under:
+
+```text
+var/
+```
+
+The import endpoints are intentionally repeatable for local review. They clear dependent reconciliation rows before re-importing source data.
+
+If a completely fresh local database is needed, stop the app and delete the generated files under `var/`, then run the service again. Flyway will recreate the schema.
+
+Do not commit generated `var/` database files.
+
+### Database Schema Files
+
+#### Utility Used
+Database schema files are generated by `Flyway`.  
+The Flyway schema files are generated by the Gradle `flywayMigrate` task, and are configured in the `application.yml` file.
+
+#### Location
+The database schema is stored under `src/main/resources/db/migration/`.  
+The schema files are named `V1.0.0__initial_schema.sql`.
 
 
----
+## Switching From `test/` to `data/`
 
-## Stack
+By default, `src/main/resources/application.yml` points to the small hand-verified `test/` data set:
 
-You may use any stack. **However**, the team you'd be joining works in a **Java / Spring Boot** backend and a **React** frontend. A solution in a similar shape is ideal - it lets us evaluate the work in the environment you'd actually be working in.
+```yaml
+reconciliation:
+  imports:
+    internal-transactions:
+      directory: test
+      filename: internal_transactions.csv
+    processor-settlement:
+      directory: test
+      filename: processor_settlement.json
+```
 
-Stack choice itself isn't scored; quality within your chosen stack is.
+To run against the larger `data/` data set, change both import directories from `test` to `data`:
 
----
+```yaml
+reconciliation:
+  imports:
+    internal-transactions:
+      directory: data
+      filename: internal_transactions.csv
+    processor-settlement:
+      directory: data
+      filename: processor_settlement.json
+```
 
-## If You Use an LLM
+Then restart the service and run the same API sequence:
 
-Using an AI assistant is completely fine and expected - we use them too. We're interested in _how_ you use it. **If you use one, include a `PROMPTS.md`** (or a section in your writeup) with:
+```powershell
+curl.exe -i -X POST http://localhost:8080/api/import/internal-transactions/populate
+curl.exe -i -X POST http://localhost:8080/api/import/processor-settlement/populate
+curl.exe -i -X POST http://localhost:8080/api/reconciliation/run
+```
 
-- The key prompts you used, roughly in order.
-- Where the assistant helped, and where you had to correct, override, or discard its output.
-- Any decisions you made _against_ its suggestion, and why.
-
-We'll talk through your approach in the follow-up. There's no penalty for AI use and no bonus for avoiding it - we're evaluating your judgment in directing the tool.
-
----
-
-## What We're Looking For
-
-Baseline expectations:
-
-- **It works end-to-end** - import → reconcile → view results - against the `data/` set.
-- **Correct reconciliation** - matching logic is sound; the fee math is right; breaks are categorized correctly.
-- **Separation of concerns** - the reconciliation engine is a distinct, testable unit, not tangled into a controller or a React component.
-- **Persistence** - results survive a restart.
-- **It handles bad input** - malformed rows, missing fields, and unexpected values degrade gracefully instead of crashing.
-<br>  
-  - <span style="color: lightgreen;">Graceful degradation I am big on, but there are some functions where FAIL_STOP behavior is best.
-  - <span style="color: lightgreen;">Producing an exception report while still moving along or processing records is one way to do this
-  - <span style="color: lightgreen;">I get trying to prevent batches stuck in suspense at the downstream HOST is a real thing, but there are "Worse Things (TM)"
-    - <span style="color: lightgreen;">Stops the need for manual intervention by skilled people, which eventually results in those records removed from batch *anyway*
-    - <span style="color: lightgreen;">"Worse Things" might be the need for front-end reconciliation against your own host, providing adequate UI functions and a somewhat understandable UX for dealing with records that are plainly
-      - <span style="color: lightgreen;">Done during the shift/batch
-      - <span style="color: lightgreen;">Part of the day's/shift's/cashier's/whatever batch
-      - <span style="color: lightgreen;">Not funded
-      - <span style="color: lightgreen;">At minimum you need UI and back-end support (in case the merchant calls for it) for
-        - <span style="color: lightgreen;">Re-submission of the flawed transaction(s)
-        - <span style="color: lightgreen;">Putting Humpty Dumpty (the merchant batch in this case) back together again by either
-          - <span style="color: lightgreen;">Re-adding the transaction the same merchant batch (with special statuses showing it was a resubmission)
-          - <span style="color: lightgreen;">Creating a special "new" /"parallel" batch just for resubmissions, linking it to the merchant batch, *plus* linking it to the new batch at the TPP/HOST where it actually *did* get settled
-        - <span style="color: lightgreen;">Now repeat the above for your *funding* (not just settlement/clearing) logic
-          - <span style="color: lightgreen;">Add in what the policy is for fees where Next Day/Same Day settlement didn't work
-          - <span style="color: lightgreen;">Add in how your backend maintains merchant_batch to TPP_batch/TPP_sub_batch to PayFac_funding linkages
-        - <span style="color: lightgreen;">And then whatever special sauce you need for internal support of *chargebacks* on those transactions, because any changes made to amount or other significant data might enable the cardholder to initiate on       
-        - <span style="color: lightgreen;">This all needs **wargaming out** for a new gateway/payfac build
-        - <span style="color: lightgreen;">Not just devs, but product owner and pricing specialist need to be involved
-- **Tests** - the core matching and fee logic is covered.
-  - <span style="color: red;">Hope you don't care if I use Mockito, JUnit, TestNG, etc.?
-    - <span style="color: lightgreen;">I like TestNG soft asserts and Mockito's ability to let me unit-test private methods
-    - ****OTOH everyone knows JUnit
-- **It runs from your README** - clear, correct setup instructions.
-  - **I am Lit major... I could take 5 hours just writing the docs. I am usually *the only one* writing docs.
-
-Bonus / differentiators:
-
-- Handling of the open questions above (tolerance, date window, split settlements).
-  - <span style="color: lightgreen;">In the "Good Old Days", PAN, Refno (Merchant ref or STAN, etc.), and amount were enough for disambiguation
-  - <span style="color: lightgreen;">AMEX and others allowed identical transactions for high dollar amounts exceeding their amount maximum (over $99,999 for instance)
-    - <span style="color: lightgreen;">You used to divide amount x 2, create 2 identical transactions, and set the FORCE FLAG when doing AMEX DIRECT AUTH or most TPPs
-  - <span style="color: lightgreen;">I'll try and stick with this, because it's easy to reason through.
-
-- Thoughtful data modeling and query design.
-  - <span style="color: red;">I'll have to reread the assignment, I don't think i saw a preferred DB so an `H2` in memory 
-  DB will suffice I guess (easy to start/tear-down for testing), unless I either find a suggestion or you make one?
-- 
-- Idempotent re-imports; import history.
-- A UI that an operations person could genuinely use to work the breaks.
-  - <span style="color: lightgreen;">This is a bridge too far for me
-  - ****I support Payment Terminal Devices and Virtual Terminals, etc. but I am not a front-end nor fullstack developer
-  - ****I'll try having the AI build one - maybe - the results would likely be **embarrassing**, so we'll see how i let the evaluator kick it off...
-- A short writeup of the tradeoffs you made and what you'd do with more time.
-
----
-
-## Senior-Level Context
-
-This is a senior role, so we're reading for judgment, not just a working demo: sound architecture, appropriate (not excessive) abstraction, clear naming, real error handling, and awareness of failure modes and operational concerns. Acknowledged gaps ("I didn't get to X; here's how I'd approach it") read better than silent ones. Ship something solid and tell us what you'd improve.
-
----
-
-## Submitting
-
-1. **Fork** this repository.
-2. Build your solution in the fork.
-3. Include a **README** with setup/run instructions, and a **`PROMPTS.md`** if you used an LLM.
-4. Open a **pull request** back to this repo, and let us know it's ready.
-
-Meaningful commit history is welcome - it helps us see how you work. Don't commit secrets (`.env`, keys, credentials) or large generated artifacts.
-
-Questions? Reach out. Good luck - we're looking forward to seeing what you build.
+The exact `test/EXPECTED.md` counts apply only to the `test/` data set. The `data/` set is larger and should be reviewed from the reconciliation response summary and break details.
