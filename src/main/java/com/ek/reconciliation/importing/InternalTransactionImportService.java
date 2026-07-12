@@ -19,7 +19,11 @@ import java.sql.PreparedStatement;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.Objects;
+import java.util.Optional;
 
+/**
+ * Service for importing internal transaction data from a CSV file.
+ */
 @Service
 public class InternalTransactionImportService {
 
@@ -42,8 +46,18 @@ public class InternalTransactionImportService {
         return populateFromCsv(defaultSourcePath);
     }
 
+    /**
+     * Populate internal transactions from a CSV file.
+     * @implNote This method is not transactional, so it is expected that the caller will manage transactions.
+     * @param sourcePath The path to the CSV file to import.
+     * @return The import response.
+     */
     @Transactional
     public ImportResponse populateFromCsv(Path sourcePath) {
+        // init response
+        ImportResponse result;
+
+        // get batch ID and initialize counts, amounts
         long importBatchId = createImportBatch(sourcePath);
 
         int validRowCount = 0;
@@ -52,6 +66,9 @@ public class InternalTransactionImportService {
         BigDecimal grossRefundAmount = new BigDecimal("0.00");
 
         // Development-friendly behavior: make the endpoint repeatable.
+        jdbcTemplate.update("delete from reconciliation_break");
+        jdbcTemplate.update("delete from reconciliation_match");
+        jdbcTemplate.update("delete from reconciliation_run");
         jdbcTemplate.update("delete from internal_transaction");
 
         try (Reader reader = Files.newBufferedReader(sourcePath)) {
@@ -64,8 +81,10 @@ public class InternalTransactionImportService {
                     .setTrim(true).get()
                     .parse(reader);
 
+            // populate counts and amounts
             for (CSVRecord record : records) {
                 try {
+                    // get row and attempt insert, if successful, increment valid row count
                     InternalTransactionRow row = parseRow(record);
                     insertInternalTransaction(importBatchId, row);
                     validRowCount++;
@@ -86,7 +105,9 @@ public class InternalTransactionImportService {
 
         updateImportBatchCounts(importBatchId, validRowCount, quarantinedRowCount);
 
-        return new ImportResponse(
+        // populate response (also gives you an easy-to-use breakpoint and view in debugger instead of create
+        // and return a new object at same time)
+        result = new ImportResponse(
                 importBatchId,
                 SOURCE_TYPE,
                 sourcePath.toString(),
@@ -95,8 +116,16 @@ public class InternalTransactionImportService {
                 grossSalesAmount,
                 grossRefundAmount
         );
+
+        // done
+        return result;
     }
 
+    /** Create a new import batch record in the database.
+     * @param sourcePath The path to the CSV file that was imported.
+     * @return The ID of the newly imported batch.
+     * @see JdbcTemplate
+     */
     private long createImportBatch(Path sourcePath) {
         KeyHolder keyHolder = new GeneratedKeyHolder();
 
@@ -116,7 +145,17 @@ public class InternalTransactionImportService {
         return Objects.requireNonNull(keyHolder.getKey()).longValue();
     }
 
+    /** Parse a single row of internal transaction data from a CSV record.
+     * @param record The CSV record.
+     * @return The parsed internal transaction row.
+     * @throws IllegalArgumentException A required field is missing or invalid.
+     * @see CSVRecord#get(String)
+     */
     private InternalTransactionRow parseRow(CSVRecord record) {
+        // init result
+        InternalTransactionRow result;
+
+        // parse required fields
         String internalTxnId = required(record, "internal_txn_id");
         String merchantId = required(record, "merchant_id");
         String merchantRef = required(record, "merchant_ref");
@@ -127,11 +166,13 @@ public class InternalTransactionImportService {
         String transactionType = required(record, "type");
         Instant capturedAt = parseInstant(required(record, "captured_at"), "captured_at");
 
+        // apply validations
         validateCurrency(currency);
         validateTransactionType(transactionType);
         validateCardLast4(cardLast4);
 
-        return new InternalTransactionRow(
+        // create result
+        result = new InternalTransactionRow(
                 internalTxnId,
                 merchantId,
                 merchantRef,
@@ -142,16 +183,38 @@ public class InternalTransactionImportService {
                 transactionType,
                 capturedAt
         );
+
+        // done
+        return result;
     }
 
+    /** Parse a string from a CSV record.
+     * @param record The CSV record.
+     * @param columnName The name of the column from which the value was extracted.
+     * @return The parsed string.
+     * @throws IllegalArgumentException if passed value is {@code null}, empty, or contains only Unicode whitespace codepoints
+     * @see CSVRecord#get(String)
+     * @see String#isBlank()
+     */
     private String required(CSVRecord record, String columnName) {
         String value = record.get(columnName);
-        if (value == null || value.isBlank()) {
+
+        // if null, empty, or only whitespace
+        if (Optional.ofNullable(value).orElse("").isBlank()) {
             throw new IllegalArgumentException("Missing required column value: " + columnName);
         }
+
+        // done
         return value.trim();
     }
 
+    /** Parse a BigDecimal from a string.
+     * @param value The string value to parse.
+     * @param columnName The name of the column from which the value was extracted.
+     * @return The parsed BigDecimal.
+     * @throws IllegalArgumentException if the value cannot be parsed as a BigDecimal.
+     * @see BigDecimal#BigDecimal(String)
+     */
     private BigDecimal parseBigDecimal(String value, String columnName) {
         try {
             return new BigDecimal(value);
@@ -160,6 +223,14 @@ public class InternalTransactionImportService {
         }
     }
 
+    /**
+     * Parse an Instant from a string.
+     * @param value The string value to parse.
+     * @param columnName The name of the column from which the value was extracted.
+     * @return The parsed Instant.
+     * @throws IllegalArgumentException if the value cannot be parsed as an Instant.
+     * @see Instant#parse(CharSequence)
+     */
     private Instant parseInstant(String value, String columnName) {
         try {
             return Instant.parse(value);
@@ -168,24 +239,53 @@ public class InternalTransactionImportService {
         }
     }
 
+    /**
+     * Validate that the currency is USD, which is the only supported currency as of this writing.
+     * @implNote This method requires passed currency to be in uppercase to match the ISO currency trigraph.
+     * @since 07/2026
+     * @param currency The ISO currency trigraph to validate.
+     * @throws IllegalArgumentException if the currency is not USD.
+     */
     private void validateCurrency(String currency) {
+        // FUTURE - need db table or enum of allowed currencies, usually in db on per-merchant basis, and check against Currency object trigraph
         if (!"USD".equals(currency)) {
             throw new IllegalArgumentException("Unsupported currency: " + currency);
         }
     }
 
+    /**
+     * Validate that the transaction type is a known, valid type in the TransactionTypes enum.
+     * @param transactionType The transaction type to validate.
+     * @see TransactionTypes
+     * @throws IllegalArgumentException if the transaction type is not a known, valid type.
+     */
     private void validateTransactionType(String transactionType) {
-        if (!"SALE".equals(transactionType) && !"REFUND".equals(transactionType)) {
+        // just check against members of the TransactionTypes enum
+        try {
+            TransactionTypes.valueOf(transactionType);
+        } catch (IllegalArgumentException e) {
+            // change message to be more helpful to the user
             throw new IllegalArgumentException("Unsupported transaction type: " + transactionType);
         }
     }
 
+    /**
+     * Validate that the PANs last4 is exactly 4 digits in length.
+     * @param cardLast4
+     * @throws IllegalArgumentException if the card last 4 digits are not exactly 4 (arabic) digits.
+     */
     private void validateCardLast4(String cardLast4) {
         if (!cardLast4.matches("\\d{4}")) {
             throw new IllegalArgumentException("card_last4 must contain exactly 4 digits: " + cardLast4);
         }
     }
 
+    /**
+     * Insert a row of internal transaction data into the database.
+     * @param importBatchId The ID of the import batch.
+     * @param row The row of data to insert.
+     * @see JdbcTemplate
+     */
     private void insertInternalTransaction(long importBatchId, InternalTransactionRow row) {
         jdbcTemplate.update("""
                 insert into internal_transaction (
@@ -215,6 +315,14 @@ public class InternalTransactionImportService {
         );
     }
 
+    /**
+     * Quarantine a record that failed to import.
+     * @param importBatchId Batch ID of the import.
+     * @param record Record that failed to import.
+     * @param reason Reason for quarantining.
+     * @see JdbcTemplate
+     * @see CSVRecord
+     */
     private void quarantineRecord(long importBatchId, CSVRecord record, String reason) {
         jdbcTemplate.update("""
                 insert into quarantined_record (
@@ -244,11 +352,23 @@ public class InternalTransactionImportService {
         }
     }
 
+    /**
+     * Update the counts of valid and quarantined rows in the import batch.
+     * @param importBatchId The ID of the import batch.
+     * @param validRowCount The number of valid rows.
+     * @param quarantinedRowCount The number of quarantined rows.
+     * @see JdbcTemplate
+     */
     private void updateImportBatchCounts(long importBatchId, int validRowCount, int quarantinedRowCount) {
+        // OMG
+        // yes I know ID is unique (thankfully) and the SQL engine should thus infer there is only 1 row at most
+        // to change, but it's a good habit to limit the number of rows affected by an update, not to mention
+        // single row lookups that often are doing full table or full index scans.
         jdbcTemplate.update("""
                 update import_batch
                 set valid_row_count = ?, quarantined_row_count = ?
                 where id = ?
+                LIMIT 1
                 """,
                 validRowCount,
                 quarantinedRowCount,
@@ -256,6 +376,19 @@ public class InternalTransactionImportService {
         );
     }
 
+    /**
+     * Represents a row of internal transaction data.
+     * @param internalTxnId Tran ID
+     * @param merchantId Merchant ID
+     * @param merchantRef Merchant Reference
+     * @param cardType Card Type
+     * @param cardLast4 Last 4 digits of card number
+     * @param grossAmount Gross amount of transaction
+     * @param currency Currency of transaction
+     * @param transactionType Type of transaction
+     * @param capturedAt Timestamp of transaction capture
+     * @see TransactionTypes
+     */
     private record InternalTransactionRow(
             String internalTxnId,
             String merchantId,

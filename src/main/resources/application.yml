@@ -21,6 +21,8 @@ server:
   port: 8080
 
 reconciliation:
+  fee-schedule:
+    path: fee_schedule.json
   imports:
     internal-transactions:
       directory: test
