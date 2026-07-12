@@ -31,7 +31,7 @@ _The main prompts you used, roughly in order. Paste them; summarize the long one
 15. Asked for an integration test verifying that the configured internal transaction CSV record count matches the import result and the resulting `internal_transaction` table count.
 16. Debugged test setup issues around JUnit 5, Gradle test execution, deprecated Commons CSV builder usage, and Spring constructor injection for test dependencies.
 17. Confirmed the import count integration test passes and provides the intended guardrail against wrong-file or unexpected-extra-record import bugs.
-
+18. Planned the next TDD phase around `test/EXPECTED.md`, using the known-good `test/` dataset as acceptance-test input for import counts, quarantine counts, raw money totals, and reconciliation outcome summaries.
 
 ## Where it helped vs. where you steered it
 

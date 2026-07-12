@@ -1,6 +1,7 @@
 package com.ek.reconciliation.importing;
 
 import com.ek.reconciliation.api.ImportResponse;
+import com.ek.reconciliation.reference.TransactionTypes;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVRecord;
 import org.springframework.beans.factory.annotation.Value;
@@ -48,6 +49,8 @@ public class InternalTransactionImportService {
 
         int validRowCount = 0;
         int quarantinedRowCount = 0;
+        BigDecimal grossSalesAmount = new BigDecimal("0.00");
+        BigDecimal grossRefundAmount = new BigDecimal("0.00");
 
         // Development-friendly behavior: make the endpoint repeatable.
         jdbcTemplate.update("delete from internal_transaction");
@@ -65,6 +68,12 @@ public class InternalTransactionImportService {
                     InternalTransactionRow row = parseRow(record);
                     insertInternalTransaction(importBatchId, row);
                     validRowCount++;
+                    // add to total gross SALEs if SALE type and same for REFUNDs
+                    if (TransactionTypes.SALE.name().equalsIgnoreCase(row.transactionType)) {
+                        grossSalesAmount.add(row.grossAmount);
+                    } else if (TransactionTypes.REFUND.name().equalsIgnoreCase(row.transactionType)) {
+                        grossRefundAmount.add(row.grossAmount);
+                    }
                 } catch (Exception ex) {
                     quarantineRecord(importBatchId, record, ex.getMessage());
                     quarantinedRowCount++;
@@ -81,7 +90,9 @@ public class InternalTransactionImportService {
                 SOURCE_TYPE,
                 sourcePath.toString(),
                 validRowCount,
-                quarantinedRowCount
+                quarantinedRowCount,
+                grossSalesAmount,
+                grossRefundAmount
         );
     }
 
