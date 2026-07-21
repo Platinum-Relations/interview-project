@@ -1,122 +1,102 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './App.css'
+import { useCallback, useEffect, useState } from 'react'
+import { fetchBreaks, fetchLatestSummary, fetchMerchants, fetchQuarantine } from './api/client'
+import type { BreakItem, Classification, MerchantRollup, QuarantineRow, RunSummary } from './api/types'
+import { BreaksList } from './components/BreaksList'
+import { CategoryTable } from './components/CategoryTable'
+import { ImportPanel } from './components/ImportPanel'
+import { MerchantTable } from './components/MerchantTable'
+import { QuarantineTable } from './components/QuarantineTable'
+import { SummaryCards } from './components/SummaryCards'
+import { logAction, logError } from './lib/log'
 
-function App() {
-  const [count, setCount] = useState(0)
+export default function App() {
+  const [summary, setSummary] = useState<RunSummary | null>(null)
+  const [breaks, setBreaks] = useState<BreakItem[]>([])
+  const [merchants, setMerchants] = useState<MerchantRollup[]>([])
+  const [quarantine, setQuarantine] = useState<QuarantineRow[]>([])
+  const [category, setCategory] = useState<Classification | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
+
+  const loadRun = useCallback(async (activeCategory: Classification | null) => {
+    setLoading(true)
+    setLoadError(null)
+    try {
+      const latest = await fetchLatestSummary()
+      setSummary(latest)
+      if (latest) {
+        const [breakItems, merchantRollups, quarantineRows] = await Promise.all([
+          fetchBreaks(latest.runId, activeCategory),
+          fetchMerchants(latest.runId),
+          fetchQuarantine(latest.runId),
+        ])
+        setBreaks(breakItems ?? [])
+        setMerchants(merchantRollups ?? [])
+        setQuarantine(quarantineRows ?? [])
+      }
+    } catch (e) {
+      logError('app.loadRun', e)
+      setLoadError('Could not reach the backend. Is it running on port 8080?')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    logAction('app.start')
+    void loadRun(null)
+  }, [loadRun])
+
+  const handleImported = useCallback(
+    (runId: number, alreadyImported: boolean) => {
+      logAction('app.imported', { runId, alreadyImported })
+      setCategory(null)
+      void loadRun(null)
+    },
+    [loadRun],
+  )
+
+  const handleCategoryChange = useCallback(
+    (next: Classification | null) => {
+      setCategory(next)
+      if (summary) {
+        void fetchBreaks(summary.runId, next).then((items) => setBreaks(items ?? []))
+      }
+    },
+    [summary],
+  )
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
+    <div className="app">
+      <header className="app-header">
+        <h1>Settlement Reconciliation</h1>
+        <p>Internal ledger vs. processor settlement</p>
+      </header>
+
+      <ImportPanel onImported={handleImported} />
+
+      {loadError && <p className="message message-error">{loadError}</p>}
+      {loading && <p className="message">Loading…</p>}
+
+      {!loading && !summary && !loadError && (
+        <section className="panel">
+          <h2>No runs yet</h2>
           <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
+            Import the internal transactions CSV and the processor settlement JSON above to run the
+            first reconciliation.
           </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
+        </section>
+      )}
 
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
+      {summary && (
+        <>
+          <SummaryCards summary={summary} />
+          <CategoryTable categories={summary.categories} onSelectCategory={handleCategoryChange} />
+          <MerchantTable merchants={merchants} />
+          <BreaksList breaks={breaks} activeCategory={category} onCategoryChange={handleCategoryChange} />
+          <QuarantineTable rows={quarantine} />
+        </>
+      )}
+    </div>
   )
 }
-
-export default App
