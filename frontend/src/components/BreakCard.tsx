@@ -1,11 +1,13 @@
-import type { BreakItem } from '../api/types'
+import type { BreakItem, SourceFocus } from '../api/types'
 import { CLASSIFICATION_LABELS, formatDateTime, formatMoney } from '../lib/format'
+import { logAction } from '../lib/log'
 
 interface Props {
   item: BreakItem
+  onOpenSource: (focus: NonNullable<SourceFocus>) => void
 }
 
-export function BreakCard({ item }: Props) {
+export function BreakCard({ item, onOpenSource }: Props) {
   return (
     <article className="break-card">
       <header className="break-header">
@@ -21,7 +23,18 @@ export function BreakCard({ item }: Props) {
           {item.internalTxnId ? (
             <dl>
               <dt>Transaction</dt>
-              <dd>{item.internalTxnId}</dd>
+              <dd>
+                <button
+                  type="button"
+                  className="link-button"
+                  onClick={() => {
+                    logAction('break.openLedgerSource', { internalTxnId: item.internalTxnId })
+                    onOpenSource({ tab: 'ledger', id: item.internalTxnId! })
+                  }}
+                >
+                  {item.internalTxnId}
+                </button>
+              </dd>
               <dt>Reference</dt>
               <dd>{item.merchantRef ?? '-'}</dd>
               <dt>Card</dt>
@@ -48,7 +61,18 @@ export function BreakCard({ item }: Props) {
             item.settlementRows.map((row) => (
               <dl key={row.networkRef}>
                 <dt>Network ref</dt>
-                <dd>{row.networkRef}</dd>
+                <dd>
+                  <button
+                    type="button"
+                    className="link-button"
+                    onClick={() => {
+                      logAction('break.openSettlementSource', { networkRef: row.networkRef })
+                      onOpenSource({ tab: 'settlement', id: row.networkRef })
+                    }}
+                  >
+                    {row.networkRef}
+                  </button>
+                </dd>
                 <dt>Reference</dt>
                 <dd>{row.merchantRef ?? 'blank'}</dd>
                 <dt>Settled</dt>

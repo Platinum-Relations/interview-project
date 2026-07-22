@@ -11,7 +11,6 @@ import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
@@ -55,6 +54,7 @@ public class ReconciliationEngine {
 
         Set<Settlement> consumed = java.util.Collections.newSetFromMap(new IdentityHashMap<>());
         Map<LedgerTransaction, List<Settlement>> attributions = new IdentityHashMap<>();
+        Map<LedgerTransaction, MatchMethod> matchMethods = new IdentityHashMap<>();
 
         // Pass 1: match by merchant_ref + sign.
         for (LedgerTransaction txn : ledger) {
@@ -65,6 +65,7 @@ public class ReconciliationEngine {
             if (!candidates.isEmpty()) {
                 candidates.forEach(consumed::add);
                 attributions.put(txn, new ArrayList<>(candidates));
+                matchMethods.put(txn, MatchMethod.MERCHANT_REF);
             }
         }
 
@@ -78,13 +79,18 @@ public class ReconciliationEngine {
             findFallbackMatch(settlement, ledger, attributions).ifPresent(txn -> {
                 consumed.add(settlement);
                 attributions.computeIfAbsent(txn, t -> new ArrayList<>()).add(settlement);
+                matchMethods.putIfAbsent(txn, MatchMethod.MERCHANT_CARD_NET);
             });
         }
 
         // Pass 3: classify.
         List<ReconciliationItem> items = new ArrayList<>();
         for (LedgerTransaction txn : ledger) {
-            items.add(classify(txn, attributions.getOrDefault(txn, List.of()), saleRefs));
+            List<Settlement> attributed = attributions.getOrDefault(txn, List.of());
+            MatchMethod method = attributed.isEmpty()
+                    ? MatchMethod.UNMATCHED
+                    : matchMethods.getOrDefault(txn, MatchMethod.UNMATCHED);
+            items.add(classify(txn, attributed, method, saleRefs));
         }
         for (Settlement settlement : settlements) {
             if (!consumed.contains(settlement)) {
@@ -122,58 +128,61 @@ public class ReconciliationEngine {
     private ReconciliationItem classify(
             LedgerTransaction txn,
             List<Settlement> attributed,
+            MatchMethod matchMethod,
             Set<String> saleRefs) {
 
         boolean orphanRefund = txn.isRefund() && !saleRefs.contains(txn.merchantRef());
 
         if (attributed.isEmpty()) {
             if (orphanRefund) {
-                return ReconciliationItem.of(txn, List.of(), Classification.ORPHAN_REFUND,
+                return ReconciliationItem.of(txn, List.of(), Classification.ORPHAN_REFUND, MatchMethod.UNMATCHED,
                         "Refund " + txn.internalTxnId() + " references " + txn.merchantRef()
                                 + " but no sale with that reference exists in the ledger (and it never settled)");
             }
-            return ReconciliationItem.of(txn, List.of(), Classification.UNMATCHED_INTERNAL,
+            return ReconciliationItem.of(txn, List.of(), Classification.UNMATCHED_INTERNAL, MatchMethod.UNMATCHED,
                     (txn.isSale() ? "Sale" : "Refund") + " of " + txn.grossAmount()
                             + " captured " + txn.capturedAt() + " never appeared in the settlement file");
         }
 
         if (orphanRefund) {
-            return ReconciliationItem.of(txn, attributed, Classification.ORPHAN_REFUND,
+            return ReconciliationItem.of(txn, attributed, Classification.ORPHAN_REFUND, matchMethod,
                     "Refund " + txn.internalTxnId() + " settled, but references " + txn.merchantRef()
                             + " and no sale with that reference exists in the ledger");
         }
 
         if (attributed.size() > 1) {
-            return classifyMultiRow(txn, attributed);
+            return classifyMultiRow(txn, attributed, matchMethod);
         }
-        return classifySingleRow(txn, attributed.getFirst());
+        return classifySingleRow(txn, attributed.getFirst(), matchMethod);
     }
 
     /** Multiple settlement rows for one capture: duplicate (rows repeat the net) vs split (rows sum to it). */
-    private ReconciliationItem classifyMultiRow(LedgerTransaction txn, List<Settlement> rows) {
+    private ReconciliationItem classifyMultiRow(
+            LedgerTransaction txn, List<Settlement> rows, MatchMethod matchMethod) {
         BigDecimal expected = expectedSettled(txn);
 
         boolean everyRowRepeatsNet = rows.stream()
                 .allMatch(s -> policy.withinTolerance(s.settledAmount(), expected));
         if (everyRowRepeatsNet) {
-            return ReconciliationItem.of(txn, rows, Classification.DUPLICATE_SETTLEMENT,
+            return ReconciliationItem.of(txn, rows, Classification.DUPLICATE_SETTLEMENT, matchMethod,
                     rows.size() + " settlement rows each repeat the expected net of " + expected
                             + " - the payment settled " + rows.size() + " times and we would be double-paid");
         }
 
         BigDecimal sum = rows.stream().map(Settlement::settledAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
         if (policy.withinTolerance(sum, expected)) {
-            return ReconciliationItem.of(txn, rows, Classification.SPLIT_SETTLEMENT,
+            return ReconciliationItem.of(txn, rows, Classification.SPLIT_SETTLEMENT, matchMethod,
                     rows.size() + " partial settlement rows sum to the expected net of " + expected
                             + " - a split settlement, not a duplicate");
         }
 
-        return ReconciliationItem.of(txn, rows, Classification.AMOUNT_MISMATCH,
+        return ReconciliationItem.of(txn, rows, Classification.AMOUNT_MISMATCH, matchMethod,
                 rows.size() + " settlement rows neither repeat nor sum to the expected net of " + expected
                         + " (rows total " + sum + ")");
     }
 
-    private ReconciliationItem classifySingleRow(LedgerTransaction txn, Settlement settlement) {
+    private ReconciliationItem classifySingleRow(
+            LedgerTransaction txn, Settlement settlement, MatchMethod matchMethod) {
         // A settlement can be wrong two ways; separate them by asking whether the
         // settled amount is internally consistent with the fees the processor reported.
         BigDecimal internallyConsistentNet = txn.grossAmount()
@@ -181,7 +190,7 @@ public class ReconciliationEngine {
                 .subtract(txn.isSale() ? settlement.processorFee() : BigDecimal.ZERO);
 
         if (!policy.withinTolerance(settlement.settledAmount(), internallyConsistentNet)) {
-            return ReconciliationItem.of(txn, List.of(settlement), Classification.AMOUNT_MISMATCH,
+            return ReconciliationItem.of(txn, List.of(settlement), Classification.AMOUNT_MISMATCH, matchMethod,
                     "Settled " + settlement.settledAmount() + " but gross " + txn.grossAmount()
                             + " minus the processor's own reported fees comes to " + internallyConsistentNet
                             + " - the principal is off");
@@ -192,7 +201,7 @@ public class ReconciliationEngine {
             boolean interchangeOk = policy.withinTolerance(settlement.interchangeFee(), expected.interchange());
             boolean processorOk = policy.withinTolerance(settlement.processorFee(), expected.processor());
             if (!interchangeOk || !processorOk) {
-                return ReconciliationItem.of(txn, List.of(settlement), Classification.FEE_DISCREPANCY,
+                return ReconciliationItem.of(txn, List.of(settlement), Classification.FEE_DISCREPANCY, matchMethod,
                         "Reported fees (interchange " + settlement.interchangeFee()
                                 + ", processor " + settlement.processorFee()
                                 + ") deviate from the published schedule (expected "
@@ -201,19 +210,19 @@ public class ReconciliationEngine {
         } else {
             boolean feesCharged = settlement.interchangeFee().signum() != 0 || settlement.processorFee().signum() != 0;
             if (feesCharged) {
-                return ReconciliationItem.of(txn, List.of(settlement), Classification.FEE_DISCREPANCY,
+                return ReconciliationItem.of(txn, List.of(settlement), Classification.FEE_DISCREPANCY, matchMethod,
                         "Refunds settle with no fees, but the processor reported interchange "
                                 + settlement.interchangeFee() + " and processor fee " + settlement.processorFee());
             }
         }
 
         if (!isWithinWindow(txn, settlement)) {
-            return ReconciliationItem.of(txn, List.of(settlement), Classification.WIDE_WINDOW_TIMING,
+            return ReconciliationItem.of(txn, List.of(settlement), Classification.WIDE_WINDOW_TIMING, matchMethod,
                     "Matched cleanly but settled " + lagDays(txn, settlement) + " days after capture - outside the T+"
                             + policy.minSettlementLagDays() + "..T+" + policy.maxSettlementLagDays() + " window");
         }
 
-        return ReconciliationItem.of(txn, List.of(settlement), Classification.CLEAN_MATCH, "Matched cleanly");
+        return ReconciliationItem.of(txn, List.of(settlement), Classification.CLEAN_MATCH, matchMethod, "Matched cleanly");
     }
 
     private BigDecimal expectedSettled(LedgerTransaction txn) {

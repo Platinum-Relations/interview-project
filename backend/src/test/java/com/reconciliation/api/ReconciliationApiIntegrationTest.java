@@ -81,6 +81,15 @@ class ReconciliationApiIntegrationTest {
 
     @Test
     @Order(4)
+    void sourceLedgerPersistsMatchMethodForCleanPairs() throws Exception {
+        mockMvc.perform(get("/api/runs/1/source/ledger"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[?(@.classification=='CLEAN_MATCH')].match_method").value(org.hamcrest.Matchers.hasItem("MERCHANT_REF")))
+                .andExpect(jsonPath("$[?(@.match_method=='UNMATCHED' && @.classification=='CLEAN_MATCH')]").isEmpty());
+    }
+
+    @Test
+    @Order(5)
     void breaksEndpointFiltersALLCategoriesAndExposesBothSides() throws Exception {
         // 1 each: unmatched-internal, unmatched-settlement, amount, fee, duplicate,
         // orphan refund, split, wide-window = 8 non-clean items.
@@ -97,7 +106,7 @@ class ReconciliationApiIntegrationTest {
     }
 
     @Test
-    @Order(5)
+    @Order(6)
     void merchantRollupAndQuarantineAreExposed() throws Exception {
         mockMvc.perform(get("/api/runs/1/merchants"))
                 .andExpect(status().isOk())
@@ -109,7 +118,7 @@ class ReconciliationApiIntegrationTest {
     }
 
     @Test
-    @Order(6)
+    @Order(7)
     void unknownRunReturns404() throws Exception {
         mockMvc.perform(get("/api/runs/9999/summary"))
                 .andExpect(status().isNotFound());

@@ -139,7 +139,7 @@ public class ImportService {
                 : item.settlements().getFirst().merchantId();
 
         ReconciliationItemEntity entity = new ReconciliationItemEntity(
-                run, item.classification(), item.reason(), merchantId);
+                run, item.classification(), item.matchMethod(), item.reason(), merchantId);
 
         if (item.internal() != null) {
             LedgerTransaction txn = item.internal();

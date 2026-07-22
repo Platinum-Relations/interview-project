@@ -10,7 +10,7 @@ interface Props {
 export function CategoryTable({ categories, onSelectCategory }: Props) {
   const nonEmpty = categories.filter((c) => c.count > 0)
   return (
-    <section className="panel">
+    <section className="panel" id="section-outcomes">
       <h2>Reconciliation summary</h2>
       <table>
         <thead>
@@ -32,6 +32,7 @@ export function CategoryTable({ categories, onSelectCategory }: Props) {
                   <button
                     className="link-button"
                     onClick={() => {
+                      console.log('[ui] View breaks clicked category=' + category.classification)
                       logAction('summary.drillDown', { category: category.classification })
                       onSelectCategory(category.classification)
                     }}

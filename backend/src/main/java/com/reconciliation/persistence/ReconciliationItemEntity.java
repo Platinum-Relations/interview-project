@@ -1,6 +1,7 @@
 package com.reconciliation.persistence;
 
 import com.reconciliation.engine.Classification;
+import com.reconciliation.engine.MatchMethod;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -48,6 +49,10 @@ public class ReconciliationItemEntity {
     @Column(nullable = false, length = 1024)
     private String reason;
 
+    @Enumerated(EnumType.STRING)
+    @Column(length = 32)
+    private MatchMethod matchMethod;
+
     /** Merchant for rollups: from the internal side when present, else from the settlement. */
     @Column(nullable = false)
     private String merchantId;
@@ -70,9 +75,15 @@ public class ReconciliationItemEntity {
     protected ReconciliationItemEntity() {
     }
 
-    public ReconciliationItemEntity(ImportRunEntity run, Classification classification, String reason, String merchantId) {
+    public ReconciliationItemEntity(
+            ImportRunEntity run,
+            Classification classification,
+            MatchMethod matchMethod,
+            String reason,
+            String merchantId) {
         this.run = run;
         this.classification = classification;
+        this.matchMethod = matchMethod;
         this.reason = reason;
         this.merchantId = merchantId;
     }
@@ -106,6 +117,10 @@ public class ReconciliationItemEntity {
 
     public String getReason() {
         return reason;
+    }
+
+    public MatchMethod getMatchMethod() {
+        return matchMethod;
     }
 
     public String getMerchantId() {

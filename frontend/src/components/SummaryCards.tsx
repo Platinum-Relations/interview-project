@@ -1,14 +1,16 @@
 import type { RunSummary } from '../api/types'
 import { formatDateTime, formatMoney } from '../lib/format'
+import { logAction } from '../lib/log'
 
 interface Props {
   summary: RunSummary
+  onOpenSourceData: () => void
 }
 
-export function SummaryCards({ summary }: Props) {
+export function SummaryCards({ summary, onOpenSourceData }: Props) {
   const discrepancyClass = summary.payoutDiscrepancy === 0 ? '' : 'value-alert'
   return (
-    <section className="panel">
+    <section className="panel" id="section-summary">
       <div className="panel-heading">
         <h2>Run {summary.runId}</h2>
         <span className="panel-subtitle">
@@ -36,16 +38,24 @@ export function SummaryCards({ summary }: Props) {
           <span className="card-value">{formatMoney(summary.totalFeesReported)}</span>
           <span className="card-hint">interchange + processor, as reported</span>
         </div>
-        <div className="card">
+        <button
+          type="button"
+          className="card card-clickable"
+          onClick={() => {
+            console.log('[ui] summary.openSourceData clicked runId=' + summary.runId)
+            logAction('summary.openSourceData', { runId: summary.runId })
+            onOpenSourceData()
+          }}
+        >
           <span className="card-label">Rows processed</span>
           <span className="card-value">
             {summary.validInternalCount + summary.validSettlementCount}
           </span>
           <span className="card-hint">
             {summary.validInternalCount} ledger, {summary.validSettlementCount} settlement,{' '}
-            {summary.quarantinedCount} quarantined
+            {summary.quarantinedCount} quarantined — click to browse source data
           </span>
-        </div>
+        </button>
       </div>
     </section>
   )

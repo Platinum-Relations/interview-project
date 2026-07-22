@@ -1,10 +1,12 @@
 package com.reconciliation.api;
 
 import com.reconciliation.api.dto.BreakItemDto;
+import com.reconciliation.api.dto.LedgerSourceRowDto;
 import com.reconciliation.api.dto.MerchantRollupDto;
 import com.reconciliation.api.dto.QuarantineDto;
 import com.reconciliation.api.dto.RunListItemDto;
 import com.reconciliation.api.dto.RunSummaryDto;
+import com.reconciliation.api.dto.SettlementSourceRowDto;
 import com.reconciliation.engine.Classification;
 import com.reconciliation.persistence.ImportRunEntity;
 import com.reconciliation.service.ImportService;
@@ -101,6 +103,18 @@ public class ReconciliationController {
     public List<QuarantineDto> quarantine(@PathVariable Long runId) {
         reportService.requireRun(runId);
         return reportService.quarantine(runId);
+    }
+
+    @GetMapping("/runs/{runId}/source/ledger")
+    public List<LedgerSourceRowDto> ledgerSource(@PathVariable Long runId) {
+        reportService.requireRun(runId);
+        return reportService.ledgerSourceRows(runId);
+    }
+
+    @GetMapping("/runs/{runId}/source/settlements")
+    public List<SettlementSourceRowDto> settlementSource(@PathVariable Long runId) {
+        reportService.requireRun(runId);
+        return reportService.settlementSourceRows(runId);
     }
 
     @ExceptionHandler(ReportService.RunNotFoundException.class)

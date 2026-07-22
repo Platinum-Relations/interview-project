@@ -14,17 +14,21 @@ public record ReconciliationItem(
         LedgerTransaction internal,
         List<Settlement> settlements,
         Classification classification,
+        MatchMethod matchMethod,
         String reason) {
 
     public static ReconciliationItem of(
             LedgerTransaction internal,
             List<Settlement> settlements,
             Classification classification,
+            MatchMethod matchMethod,
             String reason) {
-        return new ReconciliationItem(internal, List.copyOf(settlements), classification, reason);
+        return new ReconciliationItem(
+                internal, List.copyOf(settlements), classification, matchMethod, reason);
     }
 
     public static ReconciliationItem settlementOnly(Settlement settlement, String reason) {
-        return new ReconciliationItem(null, List.of(settlement), Classification.UNMATCHED_SETTLEMENT, reason);
+        return new ReconciliationItem(
+                null, List.of(settlement), Classification.UNMATCHED_SETTLEMENT, MatchMethod.UNMATCHED, reason);
     }
 }

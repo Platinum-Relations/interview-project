@@ -3,9 +3,11 @@ import type {
   BreakItem,
   Classification,
   ImportResponse,
+  LedgerSourceRow,
   MerchantRollup,
   QuarantineRow,
   RunSummary,
+  SettlementSourceRow,
 } from './types'
 
 async function getJson<T>(url: string): Promise<T | null> {
@@ -61,4 +63,23 @@ export function fetchMerchants(runId: number): Promise<MerchantRollup[] | null> 
 
 export function fetchQuarantine(runId: number): Promise<QuarantineRow[] | null> {
   return getJson<QuarantineRow[]>(`/api/runs/${runId}/quarantine`)
+}
+
+export function fetchLedgerSource(runId: number): Promise<LedgerSourceRow[] | null> {
+  return getJson<LedgerSourceRow[]>(`/api/runs/${runId}/source/ledger`)
+}
+
+export function fetchSettlementSource(runId: number): Promise<SettlementSourceRow[] | null> {
+  return getJson<SettlementSourceRow[]>(`/api/runs/${runId}/source/settlements`)
+}
+
+export async function deleteAllRuns(): Promise<void> {
+  logAction('api.request', { method: 'DELETE', url: '/api/admin/runs' })
+  const response = await fetch('/api/admin/runs', { method: 'DELETE' })
+  const body = await response.text()
+  if (!response.ok) {
+    logError('api.deleteAllRuns', { status: response.status, body })
+    throw new Error(`Reset failed with ${response.status}`)
+  }
+  logAction('api.response', { url: '/api/admin/runs', status: response.status, body })
 }

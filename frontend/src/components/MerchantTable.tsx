@@ -7,7 +7,7 @@ interface Props {
 
 export function MerchantTable({ merchants }: Props) {
   return (
-    <section className="panel">
+    <section className="panel" id="section-merchants">
       <h2>Per-merchant rollup</h2>
       <table>
         <thead>

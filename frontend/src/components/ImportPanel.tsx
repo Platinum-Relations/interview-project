@@ -46,7 +46,7 @@ export function ImportPanel({ onImported }: Props) {
   }
 
   return (
-    <section className="panel import-panel">
+    <section className="panel import-panel" id="section-import">
       <h2>Import files</h2>
       <div className="import-controls">
         <label className="file-field">
