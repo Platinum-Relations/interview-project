@@ -2,29 +2,30 @@
 
 ## Tools used
 
-Cursor (agent mode), used heavily throughout: planning, implementation, tests, and this writeup. All architectural decisions and judgment calls below were reviewed and directed by me.
+Cursor (agent mode), used throughout: planning, implementation, tests, and docs. I directed the work and reviewed the decisions; I did not treat the agent as a black box.
 
-## Key prompts
+## Key prompts (roughly in order)
 
-1. **"Go through the README of this project and let's make a plan to tackle it"** - before any code, the agent read the exercise, the test fixtures, and `EXPECTED.md`, and produced the implementation plan (ingest → fee engine → matching passes → classification → persistence/API → dashboard, validated by a golden test against `test/EXPECTED.md`).
-2. **"Explain this exercise to me"** - had it walk through the domain (gross vs. net, why matching depends on the fee math, amount-mismatch vs. fee-discrepancy, duplicates vs. splits, orphan refunds) before building, so I could sanity-check its understanding and mine.
-3. Stack and persistence decisions (see below), then: **build it milestone by milestone** - scaffold, typed ingest with quarantine, fee engine, reconciliation engine, persistence + REST API, React dashboard. Each milestone landed with its tests in a meaningful commit.
-4. **"How about the meaningful commits along the way?"** - course-correction mid-build; the agent had produced several layers without committing. Result: layer-sized commits, each compiling with its tests included.
-5. End-to-end verification: import the full `data/` set through the UI in a browser, verify the drill-down, kill and restart the backend to prove persistence.
+1. **"No code. Go through the README of this project and let's make a plan to tackle it"** — plan first. That became [PLAN.md](PLAN.md), which I approved before any implementation.
+2. **"Before we write any code, can you explain this exercise to me?"** — made it walk through the domain (gross vs net, fees, matching, break types, quarantine) so I could verify its understanding of the problem before letting it build anything.
+3. Architecture check: UI imports both files, Java backend does the reconciliation. Also how to handle `PROMPTS.md` when most prompts are small and iterative (roll those up; quote the important ones).
+4. Stack / setup choices while scaffolding (Java install size, Maven wrapper vs system Maven).
+5. **"How about the meaningful commits along the way?"** — it had stacked work without committing. I stopped it and required layer-sized commits with tests.
+6. Product follow-ups I asked for after the baseline worked: a dev-tools wipe that fully resets state (including run IDs), a source-data browser, match-rule badges on each row, and section navigation.
+7. Hands-on testing in the browser after each feature; when something didn't behave (a button not wired up, the wipe not fully resetting), I reported exactly what I did and had it fix the root cause rather than patch symptoms.
 
-Plus routine iterative prompts (fixing a Spring Boot 4 package move, adjusting a test expectation, styling) not individually listed.
+Lots of small iterative prompts in between (fix this, style that, explain that error). Not listed one by one.
 
-## Where it helped vs. where you steered it
+## Where it helped vs. where I steered it
 
-- **Helped most:** the golden test discipline. The agent proposed asserting every number in `test/EXPECTED.md` before touching `data/`, and the engine reproduced the expected table on its first run.
-- **Helped:** boilerplate speed - entities, DTOs, parser scaffolding, CSS.
-- **Steered:** tool installation. It reached for `brew install openjdk@21 maven`; I stopped it, asked for the storage footprint, and we cut Maven for the Maven wrapper (~300 MB saved, and reviewers don't need Maven installed either).
-- **Steered:** it initially answered a side question of mine with actions instead of an answer (whether commits made in a clone look different from commits made in a fork - they don't; commits carry no remote information). I made it stop and explain before continuing.
-- **Corrected:** its API integration test initially expected 7 break items for the test set; the correct number is 8 (wide-window timing is listed in the drill-down as well). The engine was right, the test expectation was wrong.
+- **Helped:** speed — scaffolding, entities, parsers, tests, CSS, wiring endpoints to the UI.
+- **Helped:** proposing the golden test — an automated test that runs the full pipeline on `test/` and asserts every count and money total in `EXPECTED.md`, before trusting results on the big `data/` set. The engine reproduced the expected table on its first run.
+- **Steered:** installs. It wanted system Maven; I asked about storage and we used the Maven wrapper instead.
+- **Corrected:** wrong API test expectation (7 break items vs 8 — wide-window timing counts in the list). Engine was fine; the test was wrong.
 
-## Decisions you made against its suggestion
+## Decisions I made
 
-- None fundamental to the reconciliation logic; the significant decisions were choices it presented rather than fought for:
-  - **Java/Spring Boot + React over full TypeScript** - matches the team's stack per the exercise, even though a TS stack would have been faster in my environment.
-  - **Embedded file-mode H2 over Postgres/Supabase** - zero-setup persistence for reviewers running from the README.
-  - **Commit cadence** - I insisted on milestone commits during the build rather than batching at the end.
+- **Java/Spring Boot + React** — matches what the exercise says the team uses.
+- **H2 file database** — results survive a restart with no Postgres setup for reviewers.
+- **Commit as we go** — milestone commits during the build, not one dump at the end.
+- **Ship the plan** — keep [PLAN.md](PLAN.md) in the repo so reviewers see what was approved before coding.

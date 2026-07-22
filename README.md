@@ -2,7 +2,7 @@
 
 A full-stack reconciliation app: it ingests the internal ledger (CSV) and the processor's settlement file (JSON), matches the two sides, verifies the fee math against the published schedule, classifies every break, and presents an ops dashboard for working them.
 
-The original exercise statement is preserved in [EXERCISE.md](EXERCISE.md).
+The original exercise statement is preserved in [EXERCISE.md](EXERCISE.md). The implementation plan approved before coding is in [PLAN.md](PLAN.md).
 
 ## Stack
 
@@ -39,7 +39,7 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:5173, choose `data/internal_transactions.csv` and `data/processor_settlement.json`, and click **Import and reconcile**. Re-importing the same files is idempotent - you get the existing run back.
+Open http://localhost:5173, choose `data/internal_transactions.csv` and `data/processor_settlement.json`, and click **Import and reconcile**. Re-importing the same files is idempotent - you get the existing run back. Results persist under `backend/.data/` across backend restarts.
 
 Tests (unit + golden dataset + API integration):
 
@@ -96,6 +96,19 @@ Against the full `data/` set: 543 valid ledger rows and 546 valid settlement row
 - **Idempotent imports.** A SHA-256 over both file contents identifies a run; re-importing identical files returns the existing run instead of duplicating it. Import history is kept per run.
 - **Judgment calls are code.** Tolerance and the settlement window live in `ReconciliationPolicy`, injected into the engine, not scattered as magic numbers.
 
+## Project layout
+
+```
+EXERCISE.md          original take-home brief
+PLAN.md              implementation plan approved before coding
+PROMPTS.md           how Cursor was used
+fee_schedule.json    published fee schedule
+data/                larger day-of dataset
+test/                small fixture + EXPECTED.md answer key
+backend/             Spring Boot API + reconciliation engine
+frontend/            React ops dashboard (Vite proxies /api → :8080)
+```
+
 ## What I'd do with more time
 
 - Pagination and search on the breaks list (fine at ~550 rows; not at 500k).
@@ -103,3 +116,5 @@ Against the full `data/` set: 543 valid ledger rows and 546 valid settlement row
 - Multi-currency support - currently anything non-USD is quarantined by design.
 - Flyway migrations instead of `ddl-auto=update` before this touched a shared environment.
 - A cross-reference duplicate check: a duplicate settlement whose second row has a *blank* ref currently lands in unmatched-settlement rather than the duplicate bucket; the fallback pass could consider already-matched transactions too.
+- Production data path: Postgres (or similar), Docker Compose / Cloud Run + CDN for the UI, not embedded H2.
+- Scale: this engine loads one day into memory and matches in a single pass - fine for the exercise size. Import wall time is logged per run (`Imported run … in N ms`). At much higher volume I'd partition by settlement date, index `merchant_ref` / merchant+card keys, and move reconcile to an async job with progress rather than doing everything on the upload request thread.
