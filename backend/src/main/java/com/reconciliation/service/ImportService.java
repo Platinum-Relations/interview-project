@@ -66,6 +66,7 @@ public class ImportService {
             String internalFileName, String internalCsv,
             String settlementFileName, String settlementJson) {
 
+        long startedAt = System.nanoTime();
         String contentHash = sha256(internalCsv + "\u0000" + settlementJson);
         var existing = runRepository.findByContentHash(contentHash);
         if (existing.isPresent()) {
@@ -99,9 +100,15 @@ public class ImportService {
             quarantineRepository.save(toEntity(run, row));
         }
 
-        log.info("Imported run {}: {} ledger rows, {} settlement rows, {} quarantined, {} items",
-                run.getId(), ledger.valid().size(), settlements.valid().size(),
-                run.getQuarantinedCount(), items.size());
+        long elapsedMs = (System.nanoTime() - startedAt) / 1_000_000L;
+        log.info(
+                "Imported run {}: {} ledger rows, {} settlement rows, {} quarantined, {} items in {} ms",
+                run.getId(),
+                ledger.valid().size(),
+                settlements.valid().size(),
+                run.getQuarantinedCount(),
+                items.size(),
+                elapsedMs);
         return new ImportOutcome(run, false);
     }
 
